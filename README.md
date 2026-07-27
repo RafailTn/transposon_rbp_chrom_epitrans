@@ -11,7 +11,7 @@ run in which order, how long they take, and how to tell whether a rerun reproduc
 **The reasoning is not here.** `src/README.md` is the design document — why the background is
 pooled-peak rather than uniform-genome, why counting is per copy, why the permutation budget scales
 with candidate count, why the shift null's conservative bias is deliberate. Read it before changing
-anything statistical. `CLAUDE.md` is the short orientation file.
+anything statistical. 
 
 A separate m6A / MinT-seq analysis lives in `src/mintseq/` with its own README. It is not covered
 here and shares only the RepeatMasker filtering idea.
@@ -33,9 +33,6 @@ results/eclip/                     all output tables and figures
 backup_hg38_fixed_provenance/      the superseded annotation, index, and results (see §7)
 src/                               scripts; src/README.md is the design document
 ```
-
-Nothing is tracked in git yet (`git ls-files` is empty) and `.gitignore` excludes `data/`,
-`hg38_fixed.gtf`, and `CLAUDE.md`.
 
 ---
 
