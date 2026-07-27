@@ -161,6 +161,55 @@ Eligible space defaults to the merged union of all that cell's RBP peaks — the
 permutation analog of the pooled-peak background, i.e. "where this assay sees
 RNA-bound signal at all".
 
+**The screen's parameterization mixes units, deliberately.** Written out, the call
+in `enrich_stranded.py` is `hypergeom.sf(A-1, Ntot, C, NX)` — i.e. P(X >= A) with
+
+| scipy arg | value | meaning | column |
+|---|---|---|---|
+| `M` = `Ntot` | total peaks over all RBPs in the cell | population | — |
+| `n` = `C[j]` | pooled loci in category j, summed over RBPs | successes in population | `pooled_loci_in_cat` |
+| `N` = `NX` | this RBP's peak count | draws | `n_peaks_rbp` |
+| `k` = `A[i,j]` | this RBP's distinct loci in category j | observed successes | `loci_in_cat` |
+
+The population and the draw size are counted in **peaks**; the successes are
+counted in **distinct TE copies**. Those are not the same unit, so this is not a
+genuine 2x2 contingency table over one set of items — a copy is not a peak, and
+the "successes" are not a subset of the "population". It is a stylized
+approximation, and it is the reason the hypergeometric is labelled a screen
+everywhere in this repo rather than a result.
+
+Two consequences worth stating explicitly rather than leaving to be rediscovered:
+
+- **`C` is a sum over RBPs of per-RBP deduped counts, not the number of distinct
+  copies in the pooled peak set.** A copy bound by three RBPs contributes 3. That
+  is intentional and consistent with `fold` reading as loci-per-peak of this RBP
+  against loci-per-peak of everyone else, but it means `pooled_loci_in_cat` is
+  *not* a locus census — `report_loci_per_cell.py` exists precisely because
+  summing these columns double-counts (see "Distinct copies per cell" below).
+- **The support could in principle be violated** — one wide peak can touch two
+  copies of the same subfamily and orientation, so nothing in the arithmetic
+  forbids `A > NX`, which would put `k` outside the hypergeometric's support and
+  return p = 0. Measured on the current tables it never happens: over 77,958 rows
+  (13,037 with a nonzero count) not one has `A > NX`; the largest
+  `loci_in_cat / n_peaks_rbp` ratio is **0.091** in K562 and **0.102** in HepG2,
+  an order of magnitude clear. The failure mode is theoretical here, but it is a
+  property of this peak set's width, not a guarantee — re-check it with
+  `awk '$7 > $6'` on a peak set with wider intervals.
+
+Why this is tolerable: every hit the screen flags is re-tested by
+`enrich_permutation.py` against a null with no such assumption — the shift null
+compares an observed locus count to the distribution of the *same statistic*
+computed the *same way* on relocated peaks, so units cancel and the mixing above
+never enters the claim. The screen only has to be a sensible ordering that
+over-selects; it is not required to be calibrated. What it must not do is *miss*
+real hits, and its anticonservatism is the safe direction for that. Do not quote
+`p_fisher_greater` / `q_BH` as evidence — quote `q_perm`, as the Outputs section
+says.
+
+(The column is named `p_fisher_greater` because the one-sided Fisher exact test
+and the hypergeometric upper-tail probability are the same number; the name
+records the interpretation, `scipy.stats.hypergeom.sf` is the implementation.)
+
 **The 269 casualties are concentrated, and it is informative where.** Of the 269
 screened hits that fail the shift null, **195 are *sense* L1** and 65 more are
 sense Alu (144 HepG2, 125 K562). Antisense loses almost nothing: 9 of 1,342. A hit that
