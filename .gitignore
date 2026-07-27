@@ -7,6 +7,9 @@ hg38_L1_Alu_SVA_canonical.gtf
 # pixi environments: multi-GB solved envs. pixi.toml and pixi.lock ARE tracked,
 # which is what makes them reproducible -- `pixi install` rebuilds .pixi from them.
 .pixi/
-src/__pycache__/
+# unanchored, so it matches at any depth: the old `src/__pycache__/` rule covered
+# only the top level and let src/eclip/__pycache__ through (one .pyc got committed).
+__pycache__/
+*.pyc
 # derived: build_te_index.py regenerates te_index.pkl (~47 MB) from the GTF
 cache/
