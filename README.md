@@ -321,8 +321,6 @@ L1PB1 median fold 50.3, `KHDRBS1` sense L1MEi 27.92×, `PRPF4` antisense SVA_D 1
 
 ## 8. Traps
 
-Collected from `CLAUDE.md` and `src/README.md`; both have fuller versions.
-
 - **`tecommon.read_bed` does `line.split("\t", 6)` and tests `f[5]` for strand.** On BED6 strand is
   the last field, so `f[5]` is `"+\n"` and a bare `== "+"` silently marks **every** peak minus,
   inverting the sense/antisense split the whole analysis rests on. The `.rstrip()` is load-bearing.
