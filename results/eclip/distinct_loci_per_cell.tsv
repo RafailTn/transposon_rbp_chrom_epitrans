@@ -1,0 +1,3 @@
+cell_line	n_sig_rbps	n_sig_hits	distinct_loci	loci_Alu	loci_L1	loci_SVA
+HepG2	36	893	27560	15392	12118	50
+K562	42	901	19889	6492	13383	14

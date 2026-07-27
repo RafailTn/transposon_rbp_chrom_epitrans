@@ -1,0 +1,13 @@
+data/
+hg38_fixed.gtf
+CLAUDE.md
+PrismNet_Predictions.tar.gz
+hg19_L1_Alu_SVA_canonical.bed
+hg38_L1_Alu_SVA_canonical.gtf
+# pixi environments: multi-GB solved envs. pixi.toml and pixi.lock ARE tracked,
+# which is what makes them reproducible -- `pixi install` rebuilds .pixi from them.
+.pixi/
+src/__pycache__/
+backup_hg38_fixed_provenance/
+# derived: build_te_index.py regenerates te_index.pkl (~47 MB) from the GTF
+cache/

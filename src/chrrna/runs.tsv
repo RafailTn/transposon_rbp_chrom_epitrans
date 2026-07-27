@@ -1,0 +1,7 @@
+sample	fraction	replicate	run	srx	layout
+K562_chrRNA_rep1	chromatin	1	SRR33381486	SRX28624490	PAIRED
+K562_chrRNA_rep2	chromatin	2	SRR33381484	SRX28624492	PAIRED
+K562_chr_Takara_rep1	chromatin_takara	1	SRR33381451	SRX28624525	PAIRED
+K562_chr_Takara_rep2	chromatin_takara	2	SRR33381450	SRX28624526	PAIRED
+K562_cyto_Takara_rep1	cytoplasm_takara	1	SRR33381449	SRX28624527	PAIRED
+K562_cyto_Takara_rep2	cytoplasm_takara	2	SRR33381448	SRX28624528	PAIRED

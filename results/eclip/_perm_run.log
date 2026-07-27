@@ -1,0 +1,25 @@
+  stranded brute-force check on AGGF1_HepG2.bed: PASS
+HepG2: 937,552 peaks, 35,502 tests, 1,037 enriched (317 sense / 720 antisense)  [1s]
+K562: 885,395 peaks, 42,456 tests, 1,026 enriched (404 sense / 622 antisense)  [1s]
+
+TOTAL significant: 2,063  (721 sense / 1342 antisense)
+2063 hypergeometric hits to defend, across 90 (cell, RBP) pairs, 2 cell lines; P_MAX=25000
+  flat round-trip on AGGF1_HepG2: PASS
+HepG2: 44 RBPs, 44 hits defended  [1702s]
+K562: 46 RBPs, 46 hits defended  [1465s]
+
+1794 / 2063 hypergeometric hits survive the permutation null at q < 0.05  (461 sense / 1333 antisense)
+wrote /home/rafail/Downloads/transposon_proj/results/eclip/rbp_te_enrichment_permutation.tsv (+ _significant.tsv)
+HepG2       36 RBPs  893 hits   27560 distinct loci  (Alu 15392  L1 12118  SVA   50)
+K562        42 RBPs  901 hits   19889 distinct loci  (Alu  6492  L1 13383  SVA   14)
+
+wrote /home/rafail/Downloads/transposon_proj/results/eclip/distinct_loci_per_cell.tsv
+wrote /home/rafail/Downloads/transposon_proj/results/eclip/top_enrichments.png and .pdf
+  sense     15 bars, top = KHDRBS1 L1MEi 27.92x (K562)
+  antisense 15 bars, top = HNRNPC AluSg7 74.00x (K562)
+wrote /home/rafail/Downloads/transposon_proj/results/eclip/top_hits_across_cell_lines.png and .pdf
+  52,704 (rbp, subfamily, orientation) combos; 990 robust in >=1 cell line
+  Alu: 7 rows, best = HNRNPC AluSg7 (antisense) replicates 2/2, median fold 109.4
+  L1: 7 rows, best = EXOSC5 L1PB1 (antisense) replicates 2/2, median fold 50.3
+  SVA: 1 rows, best = PRPF4 SVA_D (antisense) replicates 1/2, median fold 16.8
+eCLIP run complete -> /home/rafail/Downloads/transposon_proj/results/eclip

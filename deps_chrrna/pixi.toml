@@ -1,0 +1,57 @@
+[workspace]
+authors = ["RafailTn <rafailadam46@gmail.com>"]
+name = "deps_chrrna"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+version = "0.1.0"
+
+# Self-contained toolchain for the src/chrrna pipeline (GSE296212 re-quantification).
+#
+# SEPARATE FROM deps/ ON PURPOSE. deps/ pins python, numpy, scipy and matplotlib
+# with '==' because results/eclip/ must reproduce byte-for-byte, and pulling STAR,
+# sra-tools and DESeq2 into that solve would force those pins to move. Nothing
+# here is shared with deps/; the two are installed and upgraded independently.
+#
+# Install on the server:   cd deps_chrrna && pixi install
+# Then either  `pixi run <cmd>`  or use deps_chrrna/.pixi/envs/default/bin/ directly.
+
+[dependencies]
+# --- alignment -------------------------------------------------------------
+# STAR is pinned EXACTLY to the version in the GSE296212 methods. This is the one
+# pin that carries scientific weight: --outFilterMultimapNmax 10000 with
+# --outMultimapperOrder Random means multi-mapper handling *is* the measurement
+# for repeat elements, and that behaviour is not guaranteed stable across STAR
+# releases. Loosen this and the Alu/SVA numbers stop being comparable to the
+# authors' published L1 numbers.
+star = "==2.7.2b"
+
+# --- read prep -------------------------------------------------------------
+sra-tools = ">=3.0"
+pigz = ">=2.6"
+# The authors used cutadapt 1.9.1, which predates Python 3 and cannot coexist
+# with the rest of this toolchain. Adapter removal is not a step where versions
+# diverge meaningfully -- see the note in 01_trim.sh.
+cutadapt = ">=4.0"
+
+# --- quantification --------------------------------------------------------
+subread = ">=2.0"          # featureCounts
+samtools = ">=1.17"
+
+# --- analysis --------------------------------------------------------------
+# Loose pins: nothing here feeds a committed table, unlike deps/.
+python = "3.12.*"
+numpy = ">=2.0"
+r-base = ">=4.3"
+bioconductor-deseq2 = ">=1.42"
+
+[tasks]
+# Convenience wrappers so the pipeline can be driven without hardcoding paths.
+# Override defaults with env vars, e.g.  THREADS=32 pixi run align
+make-saf = { cmd = "python ../src/chrrna/make_saf.py" }
+fetch = { cmd = "bash ../src/chrrna/00_fetch.sh" }
+trim = { cmd = "bash ../src/chrrna/01_trim.sh" }
+align = { cmd = "bash ../src/chrrna/03_align.sh" }
+strandedness = { cmd = "bash ../src/chrrna/04_strandedness.sh" }
+count = { cmd = "bash ../src/chrrna/05_count.sh" }
+enrich = { cmd = "python ../src/chrrna/06_enrich_chrrna.py" }
+deseq2 = { cmd = "Rscript ../src/chrrna/07_deseq2.R" }
