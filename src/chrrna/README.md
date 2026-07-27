@@ -91,7 +91,7 @@ Rscript src/chrrna/07_deseq2.R         results/chrrna
 ```
 
 `make_saf.py` has already been run: 2,224,106 copies (Alu 1,228,449 / L1 989,683 /
-SVA 5,974), matching the annotation count in CLAUDE.md.
+SVA 5,974)
 
 **Do not skip `01_trim.sh`.** `03_align.sh` uses the authors' `--alignEndsType EndToEnd`,
 which forbids soft-clipping, so an untrimmed adapter cannot be clipped — the read just
