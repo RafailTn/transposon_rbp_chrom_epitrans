@@ -90,6 +90,16 @@ python src/chrrna/06_enrich_chrrna.py  counts/         # -> results/chrrna/
 Rscript src/chrrna/07_deseq2.R         results/chrrna
 ```
 
+Then the host-gene deconfounding pass (see "The confounder 06 cannot see" below).
+It needs GENCODE hg38, which is not shipped here:
+
+```bash
+python src/chrrna/08_partition_copies.py data/gencode.v48.annotation.gtf.gz
+TE_CLASSES=data/chrrna/te_copy_class.tsv TE_KEEP=intergenic \
+  python src/chrrna/06_enrich_chrrna.py counts/ results/chrrna_intergenic
+Rscript src/chrrna/07_deseq2.R results/chrrna_intergenic
+```
+
 `make_saf.py` has already been run: 2,224,106 copies (Alu 1,228,449 / L1 989,683 /
 SVA 5,974)
 
@@ -98,6 +108,36 @@ which forbids soft-clipping, so an untrimmed adapter cannot be clipped — the r
 fails to align, silently. The loss falls hardest on short inserts, which is a large
 fraction of a fragmented chromatin RNA library. Skipping it does not error; it quietly
 deletes data.
+
+## The confounder 06 cannot see
+
+Chromatin RNA is nascent and largely unspliced; cytoplasmic RNA is mature and spliced.
+A TE copy inside an **intron, on the same strand as its host gene**, therefore collects
+host pre-mRNA reads into its own *sense* channel — present in chromatin, absent from
+cytoplasm — and scores as chromatin-retained with no TE transcription anywhere. L1 copies
+are overwhelmingly intronic/intergenic, so the observed L1-sense retention is exactly what
+this artefact would produce. The mirror case runs the other way: a TE overlapping a host
+**exon** rides in mature mRNA and is exported, and Alu is the classic exonized element.
+Both headline directions have a trivial explanation that the raw contrast cannot exclude.
+
+`08_partition_copies.py` classifies every copy by host-gene context (`intergenic`,
+`intronic_sense`, `exonic_sense`, `intronic_anti`, `exonic_anti`, `ambiguous`) and
+`06` takes `TE_CLASSES` / `TE_KEEP` to re-run on one class. If L1-sense retention survives
+on `intergenic` copies at similar magnitude the signal is about L1; if it collapses, the
+headline was host pre-mRNA.
+
+Copies whose host is on the **opposite** strand are a control, not a nuisance: host
+pre-mRNA lands in their antisense channel, leaving their sense channel as clean as an
+intergenic copy's.
+
+**The size factor is computed before the class filter, on purpose** (`06:116`). A
+restricted run therefore stays on the same scale as the all-copies run and the two log2FCs
+are directly comparable. Renormalising within the kept subset would make any change in
+effect size unattributable — partition or rescaling, no way to tell which.
+
+`08` is 1-based inclusive throughout and converts nothing: `te_copy_key.tsv` carries GTF
+coordinates unchanged and GENCODE is a GTF too. Do not paste the half-open overlap test
+from `build_te_index.py` or the eclip scripts into it.
 
 ## Decisions that will bite if forgotten
 
@@ -121,6 +161,16 @@ II Directional kit and the `Takara` samples a different kit. `04_strandedness.sh
 it empirically from four housekeeping genes of known orientation (two `+`, two `-`, so a
 genome-wide strand imbalance cannot fake a clean answer). If the two groups disagree, that
 is a real kit difference — set `STRAND_<sample>` separately rather than forcing one value.
+
+**Settled for this run: `-s 2` for all six libraries**, verified with `04_strandedness.sh`
+(four housekeeping genes, two per strand, all clearing the 5× threshold). This matters
+because the NEB and Takara chromatin preps disagree on composition, and strand inversion
+was the first hypothesis — it is ruled out. The disagreement is concentrated in a single
+category: NEB/Takara share ratios are 1.0–2.6 for everything except **L1 sense at 0.46**,
+the only category that moves down. Since these are shares summing to 100%, the rest is
+closure. Note where that lands — L1 sense both drives the "L1 is retained" result and
+anchors the size factors (49% of the Takara chromatin TE compartment), so treat the
+magnitude of L1-sense retention as prep-dependent.
 
 **No GTF is given to STAR `genomeGenerate`.** Splice junctions from a gene model bias
 alignment toward annotated exons, and most TE copies are intronic or intergenic — the

@@ -44,6 +44,18 @@ COUNTS = sys.argv[1] if len(sys.argv) > 1 else os.path.join(PROJ, "data", "chrrn
 RES = sys.argv[2] if len(sys.argv) > 2 else os.path.join(PROJ, "results", "chrrna")
 KEY = os.path.join(PROJ, "data", "chrrna", "te_copy_key.tsv")
 
+# Optional restriction to a host-gene context class from 08_partition_copies.py.
+# Env vars rather than flags, to leave the positional args and the default path
+# exactly as they were:
+#
+#   TE_CLASSES=data/chrrna/te_copy_class.tsv TE_KEEP=intergenic \
+#     python 06_enrich_chrrna.py counts/ results/chrrna_intergenic
+#
+# TE_KEEP takes a comma-separated list. Unset => every copy is used, which is
+# the original behaviour.
+TE_CLASSES = os.environ.get("TE_CLASSES")
+TE_KEEP = os.environ.get("TE_KEEP")
+
 SAMPLES = [
     ("K562_chrRNA_rep1", "chrRNA", 1),
     ("K562_chrRNA_rep2", "chrRNA", 2),
@@ -64,6 +76,35 @@ def read_key():
             gid_sub[f[0]] = f[1]
             gid_fam[f[0]] = f[2]
     return gid_sub, gid_fam
+
+
+def read_keep_set():
+    """gene_ids to retain, or None for all of them."""
+    if not TE_CLASSES:
+        return None
+    if not TE_KEEP:
+        sys.exit("TE_CLASSES is set but TE_KEEP is not -- refusing to guess "
+                 "which class you meant")
+    if not os.path.exists(TE_CLASSES):
+        sys.exit("missing %s -- run 08_partition_copies.py first" % TE_CLASSES)
+    want = set(x.strip() for x in TE_KEEP.split(","))
+    keep = set()
+    seen = set()
+    with open(TE_CLASSES) as fh:
+        next(fh)
+        for line in fh:
+            gid, cls = line.rstrip("\n").split("\t")
+            seen.add(cls)
+            if cls in want:
+                keep.add(gid)
+    unknown = want - seen
+    if unknown:
+        sys.exit("TE_KEEP names classes not present in %s: %s\nclasses found: %s"
+                 % (TE_CLASSES, ", ".join(sorted(unknown)), ", ".join(sorted(seen))))
+    if not keep:
+        sys.exit("no copies in class(es) %s" % TE_KEEP)
+    print("restricting to %d copies in class(es): %s" % (len(keep), TE_KEEP))
+    return keep
 
 
 def read_counts(path):
@@ -88,6 +129,7 @@ def main():
                  "then copy the counts back" % COUNTS)
     os.makedirs(RES, exist_ok=True)
     gid_sub, gid_fam = read_key()
+    keep = read_keep_set()
 
     # (subfamily, orientation) -> {sample: summed count}, and copies with support.
     agg = {}
@@ -99,8 +141,16 @@ def main():
             if not os.path.exists(path):
                 sys.exit("missing %s" % path)
             c = read_counts(path)
+            # Deliberately summed BEFORE the class filter. When TE_KEEP is set
+            # the size factor still spans the whole TE compartment, so a
+            # restricted run stays on the same scale as the all-copies run and
+            # the two log2FCs can be compared directly. Renormalising inside the
+            # kept subset would make any change in effect size unattributable --
+            # partition or rescaling, no way to tell.
             libsize[(sample, orient)] = sum(c.values())
             for gid, v in c.items():
+                if keep is not None and gid not in keep:
+                    continue
                 sub = gid_sub.get(gid)
                 if sub is None:
                     continue
