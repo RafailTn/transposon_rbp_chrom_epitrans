@@ -31,6 +31,27 @@ source drifts toward trans for purely technical reasons. Comparing SVA antisense
 abundance, not biology. The baseline is therefore reported per contact-count
 decile, and each TE category is compared against the decile it belongs to.
 
+STATISTIC -- AND WHY THE DEFAULT IS NOT THE TEST FOR SPREADING. --statistic
+distal pools cis-distal AND trans into one fraction. That was the first thing
+run here and it answers "is this RNA non-local at all", but it is the wrong
+question for the architectural hypothesis people actually mean. Xist, Airn and
+Kcnq1ot1 all act in CIS: they spread along the chromosome they were transcribed
+from and do essentially nothing in trans. Trans-acting architectural RNA is the
+rare exception, not the model.
+
+That matters numerically, not just conceptually. Over TE-anchored contacts this
+library is 56.9% trans, 9.6% cis-distal, 33.5% cis-proximal, so the pooled
+statistic is roughly six parts trans to one part cis-distal: a cis-spreading
+signal can move a long way
+without shifting it, and the channel doing the shifting is the one where ambient
+ligation lives. --statistic cisdistal conditions on the RNA having stayed on its
+own chromosome -- cis-distal / (cis-proximal + cis-distal) -- which targets the
+spreading hypothesis and drops the noise-dominated compartment from the
+denominator entirely.
+
+The shifts do not depend on the statistic, so the raw dclass tallies are dumped
+to tallies_<class>.npz and any reduction can be re-derived without rerunning.
+
 INTERGENIC COPIES ONLY, by default. A TE inside a gene inherits the host's
 contact profile wholesale; see 08_partition_copies.py.
 
@@ -53,7 +74,7 @@ import numpy as np
 
 PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ARR = os.path.join(PROJ, "data", "imargi")
-PAIRS = os.path.join(PROJ, "data", "hic", "4DNFIVIHUHOE.pairs.gz")
+PAIRS = os.path.join(PROJ, "data", "hic", "4DNFIGDJIRV3.pairs.gz")
 KEY = os.path.join(PROJ, "data", "chrrna", "te_copy_key.tsv")
 CLS = os.path.join(PROJ, "data", "chrrna", "te_copy_class.tsv")
 GENCODE = os.path.expanduser(
@@ -64,6 +85,7 @@ OUT = os.path.join(PROJ, "results", "imargi")
 # whose alignment strand MATCHES a TE's annotated strand came from the antisense
 # transcript. Asserted below against housekeeping genes.
 STRAND1_INVERTED = True
+STAT = "distal"                 # set from --statistic in main()
 HOUSEKEEPING = [("GAPDH", "chr12", 6534517, 6538371, "+"),
                 ("RPL13A", "chr19", 49487608, 49492308, "+"),
                 ("ACTB", "chr7", 5527151, 5530601, "-"),
@@ -76,13 +98,69 @@ def parse_args():
     p.add_argument("--class", dest="klass", default="intergenic")
     p.add_argument("--min-contacts", type=int, default=200)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--arr", default=ARR,
+                   help="directory of per-chromosome RNA-end .npz. Point at a "
+                        "per-replicate extraction to split the data.")
+    p.add_argument("--pairs", default=PAIRS,
+                   help="pairs file the --arr extraction came from. Read for its "
+                        "#chromsize header ONLY, which the toroidal shift needs; "
+                        "must be the same file, or the null shifts against "
+                        "lengths the arrays do not share.")
+    p.add_argument("--tag", default="",
+                   help="suffix for output filenames, so runs on different "
+                        "--arr do not overwrite each other.")
+    p.add_argument("--min-mapq", type=int, default=0,
+                   help="drop RNA ends whose own MAPQ is below this. The 4DN "
+                        "pipeline kept MAPQ>=1, so mismapped repeat reads are "
+                        "present by design; raising this is the test for "
+                        "whether a distal signal is really mismapping. Costs "
+                        "depth on exactly the young subfamilies it protects.")
+    p.add_argument("--statistic", choices=("distal", "cisdistal", "trans"),
+                   default="distal",
+                   help="which reduction of the dclass triple to test. "
+                        "distal = (cis-distal+trans)/all, the pooled default. "
+                        "cisdistal = cis-distal/(cis-prox+cis-distal) -- the "
+                        "CIS-RESTRICTED statistic, which is the right one for "
+                        "a Xist-like spreading hypothesis: it asks how far the "
+                        "RNA reached GIVEN that it stayed on its own "
+                        "chromosome, and drops the trans channel entirely. "
+                        "trans = trans/all. See STATISTIC in the module "
+                        "docstring for why the default is not the right test "
+                        "for cis spreading.")
     return p.parse_args()
 
 
-def chromsizes():
+def reduce_stat(t, stat=None):
+    """(..., 3) tally over dclass -> (numerator, denominator) for `stat`.
+
+    `stat` defaults to the module-level STAT set from --statistic. It is an
+    explicit argument so within_intron_test.py can import this rather than
+    reimplement it -- the reduction must agree across every script here, for
+    the same reason the searchsorted overlap idiom must.
+
+    dclass is 0 cis-proximal (<=1 Mb), 1 cis-distal, 2 trans. Every statistic
+    here is one ratio of sums over that axis, and NOTHING upstream of this
+    function depends on which -- obs, null and the pre-mRNA baseline all carry
+    the full triple. That is deliberate: the pooled default turned out to be
+    the wrong question (see docstring), and re-deriving a different one must
+    not cost another hour-long run.
+    """
+    stat = STAT if stat is None else stat
+    if stat == "distal":
+        return t[..., 1] + t[..., 2], t.sum(-1)
+    if stat == "trans":
+        return t[..., 2], t.sum(-1)
+    # cisdistal: the trans channel is excluded from the denominator, not just
+    # the numerator. Trans is 61% of this library and is where ambient
+    # ligation lives, so conditioning on cis both targets the hypothesis and
+    # removes the dominant noise compartment.
+    return t[..., 1], t[..., 0] + t[..., 1]
+
+
+def chromsizes(pairs=PAIRS):
     """From the pairs header -- same file the arrays came from, so they cannot
     disagree about chromosome length, which the toroidal shift depends on."""
-    out = subprocess.run("zcat %s | head -400 | grep '^#chromsize'" % PAIRS,
+    out = subprocess.run("zcat %s | head -400 | grep '^#chromsize'" % pairs,
                          shell=True, capture_output=True, text=True).stdout
     d = {}
     for ln in out.splitlines():
@@ -169,10 +247,22 @@ class Chrom:
     interval is two array lookups instead of a scan. This is what makes 1000
     shifts affordable."""
 
-    def __init__(self, path):
+    def __init__(self, path, min_mapq=0):
         z = np.load(path)
-        self.pos = z["pos"].astype(np.int64)
-        code = z["strand"].astype(np.int64) * 3 + z["dclass"].astype(np.int64)
+        pos = z["pos"].astype(np.int64)
+        strand, dclass = z["strand"], z["dclass"]
+        if min_mapq:
+            if "mapq" not in z:
+                sys.exit("--min-mapq needs mapq in the arrays; re-run "
+                         "extract_rna_ends.py (it now stores mapq/mapq_dna)")
+            # Filter on the RNA end's MAPQ. A mismapped RNA end puts the anchor
+            # in the wrong place while its DNA end stays correct, which reads as
+            # a distal contact -- see extract_rna_ends.py. Dropping rows before
+            # the cumsum keeps `pos` sorted, which counts() depends on.
+            keep = z["mapq"] >= min_mapq
+            pos, strand, dclass = pos[keep], strand[keep], dclass[keep]
+        self.pos = pos
+        code = strand.astype(np.int64) * 3 + dclass.astype(np.int64)
         # int32: counts per chromosome max out around 2e7, and int64 here would
         # cost ~1 GB on chr1 for no benefit.
         self.cum = np.zeros((6, self.pos.size + 1), np.int32)
@@ -211,9 +301,11 @@ def tally(cnt, plus, groups, ngroup):
 
 
 def main():
+    global STAT
     a = parse_args()
+    STAT = a.statistic
     os.makedirs(OUT, exist_ok=True)
-    sizes = chromsizes()
+    sizes = chromsizes(a.pairs)
     anchors = read_anchors(a.klass)
     if not anchors:
         sys.exit("no copies in class %s" % a.klass)
@@ -231,11 +323,11 @@ def main():
     base = []                       # (n_contacts, n_distal) per protein-coding gene
     rng = np.random.default_rng(a.seed)
 
-    chroms = sorted(f[:-4] for f in os.listdir(ARR) if f.endswith(".npz"))
+    chroms = sorted(f[:-4] for f in os.listdir(a.arr) if f.endswith(".npz"))
     for c in chroms:
         if c not in sizes:
             continue
-        ch = Chrom(os.path.join(ARR, "%s.npz" % c))
+        ch = Chrom(os.path.join(a.arr, "%s.npz" % c), a.min_mapq)
         L = sizes[c]
 
         # --- strand assertion, on housekeeping genes ---
@@ -254,10 +346,16 @@ def main():
             same = 3 if plus else 0
             # Sense transcript = strand1 opposite (library is inverted).
             row = (0 if plus else 3) if STRAND1_INVERTED else same
-            tot = int(cnt[row:row + 3].sum())
-            dis = int(cnt[row + 1:row + 3].sum())
-            if tot:
-                base.append((tot, dis))
+            # Stored as the full dclass triple, reduced at report time like
+            # everything else, so --statistic re-selects the baseline too. A
+            # baseline reduced on a different statistic than the observations
+            # would be a silent unit mismatch.
+            # cnt is (6, n_introns): sum over this gene's introns, keep the
+            # dclass axis. One row per gene, so the decile stratification below
+            # still has per-source abundance to cut on.
+            tri3 = cnt[row:row + 3].sum(1).astype(np.int64)
+            if tri3.sum():
+                base.append(tri3)
 
         st, en, plus, sub = anchors[c]
         st = np.array(st, np.int64); en = np.array(en, np.int64)
@@ -297,14 +395,34 @@ def main():
 
     LBL = ("antisense", "sense") if STRAND1_INVERTED else ("sense", "antisense")
 
+    # The shifts are the whole cost of this script (~1 h at --shifts 1000) and
+    # they do not depend on the statistic. Dump the raw dclass tallies so any
+    # other reduction is a seconds-long re-read rather than a rerun. Written
+    # per class, not per statistic -- one file serves all three.
+    tally_path = os.path.join(OUT, "tallies_%s%s%s.npz" % (
+        a.klass, "_mapq%d" % a.min_mapq if a.min_mapq else "", a.tag))
+    np.savez_compressed(
+        tally_path, obs=obs, null=null, base=np.array(base, np.int64),
+        subs=np.array(subs), labels=np.array(LBL),
+        ncopy=np.array([len(ncopy[s]) for s in subs]),
+        shifts=a.shifts, seed=a.seed)
+    print("wrote %s (obs/null dclass tallies, statistic-independent)"
+          % tally_path, flush=True)
+
     # --- pre-mRNA baseline by abundance decile ---
-    base = np.array(sorted(base), np.int64)
-    q = np.quantile(base[:, 0], np.linspace(0, 1, 11))
+    base = np.array(base, np.int64)
+    bnum, bden = reduce_stat(base)
+    # Deciles are cut on the statistic's OWN denominator, not on total
+    # contacts: for --statistic cisdistal the trans contacts are not part of
+    # the measurement, so a gene with a million trans and ten cis contacts
+    # belongs in a low decile, not the top one.
+    base, bnum, bden = base[bden > 0], bnum[bden > 0], bden[bden > 0]
+    q = np.quantile(bden, np.linspace(0, 1, 11))
     dec = []
     for i in range(10):
-        m = (base[:, 0] >= q[i]) & (base[:, 0] <= q[i + 1])
+        m = (bden >= q[i]) & (bden <= q[i + 1])
         if m.sum():
-            dec.append((q[i], q[i + 1], base[m, 1].sum() / base[m, 0].sum(), int(m.sum())))
+            dec.append((q[i], q[i + 1], bnum[m].sum() / bden[m].sum(), int(m.sum())))
 
     def ref_for(n):
         for lo, hi, f, _ in dec:
@@ -317,20 +435,22 @@ def main():
         fam, name = s.split("|")
         for oi in (0, 1):
             o = obs[i, oi]
-            n = int(o.sum())
+            onum, oden = reduce_stat(o)
+            n = int(oden)
             if n < a.min_contacts:
                 continue
-            f = (o[1] + o[2]) / n
+            f = onum / n
             nl = null[:, i, oi, :]
-            tot = nl.sum(1)
-            ok = tot > 0
-            nf = (nl[ok, 1] + nl[ok, 2]) / tot[ok]
+            nnum, nden = reduce_stat(nl)
+            ok = nden > 0
+            nf = nnum[ok] / nden[ok]
             mu, sd = float(nf.mean()), float(nf.std(ddof=1))
             z = (f - mu) / sd if sd > 0 else float("nan")
             pe = (1 + int((nf >= f).sum())) / (len(nf) + 1)
             rows.append(dict(subfamily=name, family=fam, orientation=LBL[oi],
                              n_copies=len(ncopy[s]), n_contacts=n,
-                             distal_frac=f, null_mean=mu, null_sd=sd, z=z,
+                             n_all=int(o.sum()), statistic=STAT,
+                             stat_frac=f, null_mean=mu, null_sd=sd, z=z,
                              p_emp=pe, premrna_ref=ref_for(n)))
     from math import erfc, sqrt
     for r in rows:
@@ -345,9 +465,15 @@ def main():
 
     rows.sort(key=lambda r: -r["z"] if r["z"] == r["z"] else 1e9)
     cols = ["subfamily", "family", "orientation", "n_copies", "n_contacts",
-            "distal_frac", "null_mean", "null_sd", "z", "p_emp", "p_z", "q",
-            "premrna_ref"]
-    path = os.path.join(OUT, "trans_test_%s.tsv" % a.klass)
+            "n_all", "statistic", "stat_frac", "null_mean", "null_sd", "z",
+            "p_emp", "p_z", "q", "premrna_ref"]
+    # n_contacts is the STATISTIC's denominator, n_all every contact on the
+    # copies; they differ for --statistic cisdistal, where trans is excluded.
+    suffix = a.klass if STAT == "distal" else "%s_%s" % (a.klass, STAT)
+    if a.min_mapq:
+        suffix += "_mapq%d" % a.min_mapq
+    suffix += a.tag
+    path = os.path.join(OUT, "trans_test_%s.tsv" % suffix)
     with open(path, "w") as fh:
         fh.write("\t".join(cols) + "\n")
         for r in rows:
@@ -355,18 +481,18 @@ def main():
                 ("%.6g" % r[c]) if isinstance(r[c], float) else str(r.get(c, ""))
                 for c in cols) + "\n")
 
-    print("\npre-mRNA baseline, distal fraction by contact-count decile:")
+    print("\npre-mRNA baseline, %s fraction by decile of the statistic's own\n  denominator:" % STAT)
     for lo, hi, f, k in dec:
-        print("  n in [%8d,%8d]  distal=%.3f  (%d genes)" % (lo, hi, f, k))
+        print("  n in [%8d,%8d]  %s=%.3f  (%d genes)" % (lo, hi, STAT, f, k))
     print("\nwrote %s  (%d rows)" % (path, len(rows)))
-    print("\ntop by z (distal more than position predicts):")
+    print("\ntop by z (%s more than position predicts):" % STAT)
     print("  %-10s %-10s %-5s %8s %9s %8s %8s %9s %9s"
-          % ("subfam", "orient", "fam", "copies", "contacts", "distal",
+          % ("subfam", "orient", "fam", "copies", "contacts", STAT[:8],
              "null_mu", "z", "q"))
     for r in rows[:15]:
         print("  %-10s %-10s %-5s %8d %9d %8.3f %8.3f %9.2f %9.2g"
               % (r["subfamily"], r["orientation"], r["family"], r["n_copies"],
-                 r["n_contacts"], r["distal_frac"], r["null_mean"], r["z"],
+                 r["n_contacts"], r["stat_frac"], r["null_mean"], r["z"],
                  r.get("q", float("nan"))))
 
 

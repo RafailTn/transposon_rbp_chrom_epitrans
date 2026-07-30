@@ -49,7 +49,11 @@ COORDINATES. The .pairs format is 1-based, and te_copy_key.tsv carries GTF
 converted. GENCODE is 1-based too. Do not paste the half-open logic from the
 eclip tree in here.
 
-Usage: check_pairs.py <pairs.gz> [gencode.gtf.gz]
+Usage: check_pairs.py [pairs.gz] [gencode.gtf.gz]
+
+Both conventions above are properties of a FILE, not of the assay -- a different
+deposit can have been built by a different pipeline -- so re-run this whenever the
+pairs file changes rather than trusting the report on disk.
 """
 import gzip
 import os
@@ -61,7 +65,7 @@ import numpy as np
 
 PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PAIRS = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
-    PROJ, "data", "hic", "4DNFIVIHUHOE.pairs.gz")
+    PROJ, "data", "hic", "4DNFIGDJIRV3.pairs.gz")
 GENCODE = sys.argv[2] if len(sys.argv) > 2 else os.path.expanduser(
     "~/Downloads/hg38/gencode.v47.primary_assembly.annotation.gtf.gz")
 KEY = os.path.join(PROJ, "data", "chrrna", "te_copy_key.tsv")

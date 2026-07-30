@@ -1,21 +1,21 @@
-pairs file : data/hic/4DNFIVIHUHOE.pairs.gz
-total pairs: 248414406
+pairs file : data/hic/4DNFIGDJIRV3.pairs.gz
+total pairs: 285576525
 
 === CHECK A: which side is the RNA end? ===
 discriminator             side1        side2     n(max)   implies
-exon fraction          26.3060%     11.3047%   65347894   side1 is RNA
-gene-body frac         93.5340%     77.5032%  232351839   side1 is RNA
+exon fraction          26.1577%     10.4275%   74700144   side1 is RNA
+gene-body frac         91.0154%     76.5823%  259918534   side1 is RNA
 chrM share              0.0000%      0.0000%          0   ABSTAINS (no signal)
-top-0.1% bin share      8.9549%      1.0914%          -   side1 is RNA
+top-0.1% bin share      6.7313%      0.4243%          -   side1 is RNA
 
 VERDICT: side1 is the RNA end (3 of 4 discriminators voted, all agree).
 
 === CHECK B: RNA-end strand convention ===
 gene     strand    RNA '+'    RNA '-'  read
-GAPDH    +             128      39191  INVERTED
-RPL13A   +             123     100980  INVERTED
-ACTB     -           54101        132  INVERTED
-EEF1A1   -           25544        542  INVERTED
+GAPDH    +             363      62082  INVERTED
+RPL13A   +             227     185625  INVERTED
+ACTB     -          109392        175  INVERTED
+EEF1A1   -           36361        513  INVERTED
 
 => RNA strand1 IS INVERTED vs the transcript strand (4/4 covered)
 
@@ -23,98 +23,98 @@ orientation labels below use: strand1 INVERTED -> same-strand reads are ANTISENS
 
 === CHECK C: SVA coverage census (RNA end) ===
 subfam    orient     class           contacts    copies
-SVA_D     antisense  intronic_anti      42253       515
-SVA_B     antisense  intronic_anti      26190       213
-SVA_C     antisense  intronic_anti      20357       152
-SVA_A     antisense  intronic_anti      13646       211
-SVA_F     antisense  intronic_anti      10808       239
-SVA_D     sense      intronic_sense      7528       161
-SVA_D     antisense  ambiguous           6322       108
-SVA_A     sense      intronic_sense      6167       201
-SVA_D     sense      exonic_sense        5159        70
-SVA_B     sense      ambiguous           4290        57
-SVA_D     sense      intronic_anti       4157       457
-SVA_D     sense      intergenic          3612       327
-SVA_E     antisense  intronic_anti       3205       143
-SVA_B     sense      intronic_sense      2726       107
-SVA_D     antisense  intergenic          2669       334
-SVA_D     sense      ambiguous           2539       108
-SVA_E     sense      intronic_sense      2402       108
-SVA_A     sense      exonic_sense        2376        23
-SVA_F     sense      intronic_sense      2323       102
-SVA_B     antisense  ambiguous           2095        52
-SVA_B     sense      intronic_anti       2089       190
-SVA_B     antisense  intergenic          2077       158
-SVA_C     sense      intronic_sense      1984        45
-SVA_B     sense      intergenic          1779       163
-SVA_A     antisense  ambiguous           1737        55
-SVA_C     sense      intronic_anti       1571       131
-SVA_C     sense      intergenic          1566       110
-SVA_C     antisense  ambiguous           1555        20
-SVA_A     sense      intergenic          1355       162
-SVA_A     sense      intronic_anti       1215       162
-SVA_F     antisense  ambiguous           1171        69
-SVA_A     antisense  intergenic          1128       150
-SVA_C     antisense  intergenic          1089        94
-SVA_A     sense      ambiguous           1084        47
-SVA_D     antisense  exonic_anti          984        14
-SVA_C     sense      ambiguous            960        19
-SVA_D     antisense  exonic_sense         904        70
-SVA_D     antisense  intronic_sense       853       150
-SVA_B     sense      exonic_sense         822        19
-SVA_F     sense      intergenic           821       148
-SVA_F     sense      intronic_anti        817       163
-SVA_B     antisense  exonic_anti          816        11
-SVA_C     sense      exonic_sense         784        12
-SVA_F     antisense  intergenic           776       160
-SVA_E     sense      ambiguous            604        27
-SVA_F     sense      exonic_sense         598        28
-SVA_A     antisense  exonic_anti          584        17
-SVA_A     antisense  intronic_sense       515       136
-SVA_C     antisense  intronic_sense       408        39
-SVA_E     sense      intronic_anti        369        87
-SVA_F     antisense  intronic_sense       345        85
-SVA_F     sense      ambiguous            336        56
-SVA_B     antisense  intronic_sense       323        65
-SVA_E     antisense  intergenic           316        65
-SVA_E     sense      intergenic           283        66
-SVA_E     sense      exonic_sense         255        11
-SVA_F     antisense  exonic_sense         228        29
-SVA_F     antisense  exonic_anti          224         8
-SVA_B     antisense  exonic_sense         193        19
-SVA_E     antisense  intronic_sense       171        60
-SVA_E     antisense  ambiguous            160        23
-SVA_A     antisense  exonic_sense         153        20
-SVA_C     antisense  exonic_sense         100        11
-SVA_B     sense      exonic_anti           94        10
-SVA_D     sense      exonic_anti           91        14
-SVA_A     sense      exonic_anti           70        13
-SVA_C     antisense  exonic_anti           61         4
-SVA_C     sense      exonic_anti           47         5
-SVA_F     sense      exonic_anti           37         6
-SVA_E     antisense  exonic_anti           36         5
-SVA_E     antisense  exonic_sense          31         8
-SVA_E     sense      exonic_anti           20         5
+SVA_D     antisense  intronic_anti      29388       519
+SVA_B     antisense  intronic_anti      15458       237
+SVA_C     antisense  intronic_anti      10382       154
+SVA_A     antisense  intronic_anti       7706       235
+SVA_F     antisense  intronic_anti       7222       250
+SVA_A     sense      intronic_sense      5960       224
+SVA_D     sense      intronic_sense      5869       182
+SVA_D     antisense  ambiguous           4974       113
+SVA_D     sense      intronic_anti       4537       477
+SVA_D     sense      intergenic          3463       340
+SVA_E     antisense  intronic_anti       3004       158
+SVA_B     sense      ambiguous           2789        54
+SVA_D     antisense  intergenic          2627       344
+SVA_D     sense      ambiguous           2308       116
+SVA_D     sense      exonic_sense        2223        68
+SVA_B     sense      intronic_anti       2118       199
+SVA_B     sense      intergenic          2115       169
+SVA_B     sense      intronic_sense      1946       113
+SVA_F     sense      intronic_sense      1943       112
+SVA_E     sense      ambiguous           1809        28
+SVA_C     sense      intronic_anti       1782       138
+SVA_F     sense      intronic_anti       1597       184
+SVA_A     sense      intergenic          1579       171
+SVA_A     antisense  intergenic          1566       185
+SVA_E     sense      intronic_sense      1565       120
+SVA_F     sense      exonic_sense        1437        25
+SVA_C     sense      intronic_sense      1390        49
+SVA_A     sense      intronic_anti       1345       172
+SVA_B     antisense  intergenic          1338       162
+SVA_C     sense      intergenic          1314       115
+SVA_A     antisense  ambiguous           1305        60
+SVA_B     antisense  ambiguous           1116        53
+SVA_F     antisense  ambiguous           1092        84
+SVA_F     antisense  intergenic          1045       169
+SVA_F     sense      intergenic          1018       163
+SVA_D     antisense  intronic_sense       983       160
+SVA_A     sense      exonic_sense         938        26
+SVA_C     antisense  intergenic           834       105
+SVA_E     sense      intergenic           790        80
+SVA_A     sense      ambiguous            782        52
+SVA_A     antisense  intronic_sense       667       150
+SVA_B     antisense  exonic_anti          645        12
+SVA_E     antisense  intergenic           641        82
+SVA_D     antisense  exonic_anti          640        15
+SVA_C     antisense  ambiguous            601        21
+SVA_C     sense      ambiguous            586        20
+SVA_E     sense      intronic_anti        555       109
+SVA_B     sense      exonic_sense         523        19
+SVA_F     sense      ambiguous            523        66
+SVA_C     sense      exonic_sense         486        12
+SVA_D     antisense  exonic_sense         485        66
+SVA_F     antisense  exonic_anti          412         9
+SVA_E     sense      exonic_sense         390        13
+SVA_A     antisense  exonic_anti          375        19
+SVA_B     antisense  intronic_sense       362        72
+SVA_F     antisense  intronic_sense       349        84
+SVA_C     antisense  intronic_sense       305        41
+SVA_B     antisense  exonic_sense         267        17
+SVA_E     antisense  intronic_sense       236        67
+SVA_A     antisense  exonic_sense         228        25
+SVA_E     antisense  ambiguous            220        26
+SVA_C     antisense  exonic_anti          212         5
+SVA_D     sense      exonic_anti          145        13
+SVA_F     antisense  exonic_sense         133        27
+SVA_B     sense      exonic_anti          116        11
+SVA_C     antisense  exonic_sense         102        13
+SVA_A     sense      exonic_anti           93        13
+SVA_F     sense      exonic_anti           59         8
+SVA_C     sense      exonic_anti           55         4
+SVA_E     antisense  exonic_anti           54         7
+SVA_E     sense      exonic_anti           49         6
+SVA_E     antisense  exonic_sense          24         9
 
 SVA totals by orientation x class:
-  antisense  intronic_anti  contacts=116459    copies=1468
-  sense      intronic_sense contacts=23130     copies=722
-  antisense  ambiguous      contacts=13040     copies=325
-  sense      intronic_anti  contacts=10218     copies=1188
-  sense      exonic_sense   contacts=9994      copies=163
-  sense      ambiguous      contacts=9813      copies=313
-  sense      intergenic     contacts=9416      copies=972
-  antisense  intergenic     contacts=8055      copies=959
-  antisense  exonic_anti    contacts=2705      copies=59
-  antisense  intronic_sense contacts=2615      copies=535
-  antisense  exonic_sense   contacts=1609      copies=157
-  sense      exonic_anti    contacts=359       copies=53
+  antisense  intronic_anti  contacts=73160     copies=1545
+  sense      intronic_sense contacts=18673     copies=796
+  sense      intronic_anti  contacts=11934     copies=1275
+  sense      intergenic     contacts=10279     copies=1035
+  antisense  ambiguous      contacts=9308      copies=355
+  sense      ambiguous      contacts=8797      copies=335
+  antisense  intergenic     contacts=8051      copies=1046
+  sense      exonic_sense   contacts=5997      copies=163
+  antisense  intronic_sense contacts=2902      copies=573
+  antisense  exonic_anti    contacts=2338      copies=67
+  antisense  exonic_sense   contacts=1239      copies=157
+  sense      exonic_anti    contacts=517       copies=55
 
 === family scale + DNA-end distance (DESCRIPTIVE ONLY, not the test) ===
 fam   orient       contacts  cis_prox  cis_distal    trans
-Alu   antisense    19789365     22.2%       14.3%    63.5%
-L1    antisense    16313038     23.6%       16.3%    60.2%
-Alu   sense        13867090     25.8%       13.0%    61.2%
-L1    sense         5506602     40.1%       12.7%    47.3%
-SVA   antisense      144483     21.2%       17.7%    61.1%
-SVA   sense           62930     36.6%        9.8%    53.7%
+L1    antisense    16314865     28.7%       10.7%    60.6%
+Alu   antisense    14011798     30.6%        9.7%    59.7%
+Alu   sense        11422131     35.0%        9.0%    56.0%
+L1    sense         8795175     45.1%        8.2%    46.7%
+SVA   antisense       96998     25.6%       14.3%    60.1%
+SVA   sense           56197     45.7%        8.1%    46.2%
