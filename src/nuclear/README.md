@@ -17,8 +17,9 @@ joined to it. Nothing has been joined yet; this stage stands alone.
 | nucleolus | MKI67IP (NIFK) | `4DNFIFNIK4HD`, `4DNFIGU18ZPJ` | `4DNESO6HFSAD` |
 | nucleolus | POL1RE (POLR1E) | `4DNFICLC27JC`, `4DNFICYLNXF2` | `4DNESIH5OOWT` |
 
-All md5-verified; see `data/nuclear_manifest.tsv`. Also pulled but **not yet used**:
-16-fraction Repli-seq (`data/repliseq/`, 17 fractions × 2 reps, bedGraph, 5 kb bins).
+All md5-verified; see `data/nuclear_manifest.tsv`. Plus **16-fraction Repli-seq**
+(`data/repliseq/`, G1 + P2_S…P17_S × 2 reps, bedGraph, 5 kb bins), used as the
+replication-timing covariate.
 
 **The tracks are log2 enrichment scores, not counts**, despite the portal labelling them
 `normalized counts` / "20kb bin (read normalized) count track": 70.7% of bins are negative,
@@ -90,30 +91,121 @@ Alu speckle-proximal and lamina-depleted, L1 the reverse. This is real and it is
 what Alu's GC-richness and L1's AT-richness predict without any nuclear biology. **Quoting
 this table as a nuclear-organisation finding would be a mistake.**
 
-## Result 2: after GC control, all three families are lamina-*depleted*
+## How GC is controlled, and the check that it works
 
-The GC-decile residual, with cluster-robust SE:
+**Stratified mean-subtraction** — a piecewise-constant regression of TSA signal on GC:
 
-| family | speckle | lamina | nucleolus (MKI67IP) | lamina − nucleolus |
-|---|---|---|---|---|
-| Alu | +0.116 ± 0.002 | **−0.182 ± 0.003** | +0.010 ± 0.001 | −0.192 ± 0.005 |
-| L1 | +0.045 ± 0.001 | **−0.121 ± 0.003** | +0.038 ± 0.001 | −0.159 ± 0.005 |
-| SVA | +0.071 ± 0.006 | **−0.152 ± 0.012** | +0.009 ± 0.008 | −0.161 ± 0.021 |
+1. GC fraction per 20 kb bin, `G+C / (G+C+A+T)`, N excluded from the denominator.
+2. Equal-count GC strata cut on percentiles **of the usable bins only**, so the masked
+   centromeric and gap bins cannot shift the strata.
+3. Per stratum and per axis, the mean signal over all usable bins in it.
+4. `resid` for a copy = (its bin's value) − (its stratum's mean).
+5. Copy-weighted average of those residuals, bin-clustered SE.
 
-**The naive picture inverts for L1.** "L1 lives at the nuclear lamina" is entirely a
-composition effect: at matched GC, L1-containing neighbourhoods are *less* lamina-proximal
-than average (−0.121, ~40 SE). All three families sit slightly speckle-ward and
-nucleolus-ward of GC-matched sequence, and they barely differ from each other on the
-lamina−nucleolus contrast (−0.16 to −0.19) — the contrast chosen precisely because GC does
-not predict which heterochromatic destination a locus takes. So the large apparent family
-differences are composition; what remains is small and shared.
+So the residual is the part of a subfamily's signal not attributable to the GC band its
+copies sit in.
 
-Effect sizes are 0.05–0.19 log2 units against a GC-driven range of ~1.9, i.e. **composition
-explains roughly an order of magnitude more than family identity does.** The SEs are tiny
-only because n is enormous; statistical significance here is not the same as importance.
+**The failure mode this has, quantified.** Equal-*count* strata are wildly unequal in
+*width*: at 10 deciles the middle ones span ~0.013 GC units but the top spans **0.194**
+(0.486→0.680) and the bottom 0.089. The tails are exactly where Alu (GC-rich) and L1
+(AT-rich) concentrate, and where the GC→signal slope is steepest — so coarse strata leave
+residual within-stratum GC in the worst possible place.
 
-SVA tracks Alu, not L1, on every axis — consistent with its Alu-derived, GC-rich composition
-rather than with its being a young hominid-specific element.
+**Tested by refining the stratification until the estimate stops moving:**
+
+| strata | Alu speckle | L1 speckle | SVA speckle | Alu lamina | L1 lamina |
+|---|---|---|---|---|---|
+| 10 | +0.1162 | +0.0451 | +0.0705 | −0.1816 | −0.1214 |
+| 50 | +0.1209 | +0.0495 | +0.0749 | −0.1816 | −0.1236 |
+| 100 | +0.1214 | +0.0497 | +0.0755 | −0.1816 | −0.1236 |
+| 500 | +0.1214 | +0.0496 | +0.0748 | −0.1812 | −0.1233 |
+
+Converged by ~50 and flat to 500. Ten deciles understated the speckle residual by ~0.005
+(4–10% of the estimate) and the lamina residual by ~0.002; no conclusion changes. The
+default is therefore **`--gc-strata 50`**, and the numbers below are the converged ones.
+
+Residual within-stratum GC imbalance at 10 deciles confirms the diagnosis: copy-weighted
+minus bin-mean GC is ≤0.0008 in deciles 0–8 but −0.006 to −0.009 in decile 9, the wide one.
+
+**What this does not control.** GC is a proxy. Gene density, replication timing, CpG-island
+density and chromosome identity all co-vary with it and are *not* held fixed — the L1M3a /
+chr19 case below is the proof, a subfamily at below-average GC whose extreme residual is
+pure chromosome identity. The strata count was never the real limitation; the choice of a
+single scalar covariate is.
+
+## Replication timing as the covariate: weaker alone, better jointly
+
+`repliseq_timing.py` builds a per-bin replication-timing profile from the 16-fraction
+Repli-seq (G1 + P2_S…P17_S, 2 reps each; the 17 "sets" are one experiment split by
+fraction). Per bin the 16 S-phase signals are depth-normalised, converted to proportions and
+reduced to `RT = Σ i·p_i`, a continuous average replication time in fraction units.
+
+**Direction is measured, not assumed:** corr(RT, GC) = **−0.542**, and early replication is
+GC-rich, so low RT = early and the deposited order P2→P17 runs early→late. The script exits
+rather than guess if that correlation is too weak to fix the sign.
+
+RT was expected to beat GC, being a direct measurement of compartmentalisation rather than a
+sequence proxy. **It does not** — variance explained in the TSA axes, 50 strata:
+
+| axis | GC | RT | GC × RT jointly |
+|---|---|---|---|
+| speckle | **0.700** | 0.517 | **0.771** |
+| lamina | **0.426** | 0.406 | **0.530** |
+
+GC is the stronger single covariate on both axes. But RT is not redundant: adding it lifts R²
+by 0.07 (speckle) and 0.10 (lamina), so it carries compartment information GC misses. Hence
+`--covariate {gc,rt,both}`, **default `both`** (15×15 = 225 cells; cells under `--min-cell`
+fall back to the marginal GC-stratum mean, which affected 1 cell of 225).
+
+Requiring finite RT above `--min-s-total` costs 2,506 bins, leaving 139,980 (90.6%).
+
+### Better control roughly halves every residual
+
+| | GC only | RT only | GC × RT |
+|---|---|---|---|
+| Alu speckle | +0.121 | +0.072 | **+0.049** |
+| L1 speckle | +0.050 | −0.014 | **+0.038** |
+| SVA speckle | +0.075 | +0.084 | **+0.023** |
+| Alu lamina | −0.182 | −0.122 | **−0.085** |
+| L1 lamina | −0.124 | −0.042 | **−0.102** |
+| SVA lamina | −0.150 | −0.175 | **−0.086** |
+
+**More than half of what the GC-only analysis called "residual" was compartment structure GC
+could not see.** All SEs are ≤0.011, so these shifts are far outside the error bars. The
+GC-only numbers in the sections above are superseded by the `both` column; they are kept
+because the size of the gap is the point.
+
+Note L1 under RT-only: speckle **−0.014** and lamina **−0.042**, i.e. essentially at its
+control. L1 is the family whose apparent position is most fully explained by replication
+timing — unsurprising, since L1 density and late replication are close to the same variable.
+
+## Result 2: after full control, all three families are mildly lamina-*depleted*
+
+Conditioned on GC × RT jointly (the `both` default), with cluster-robust SE:
+
+| family | speckle | lamina | nucleolus (MKI67IP) |
+|---|---|---|---|
+| Alu | +0.049 ± 0.001 | **−0.085 ± 0.002** | +0.034 ± 0.001 |
+| L1 | +0.038 ± 0.001 | **−0.102 ± 0.002** | +0.042 ± 0.001 |
+| SVA | +0.023 ± 0.005 | **−0.086 ± 0.011** | +0.030 ± 0.006 |
+
+**The naive picture inverts for L1.** "L1 lives at the nuclear lamina" is not a nuclear
+finding: at matched composition and replication timing, L1-containing neighbourhoods are
+*less* lamina-proximal than average (−0.102, ~50 SE). All three families sit slightly
+speckle-ward and nucleolus-ward of matched sequence.
+
+**And the three families have become nearly indistinguishable.** Under GC only the lamina
+residuals were −0.182 / −0.124 / −0.150 (Alu/L1/SVA); jointly they are −0.085 / −0.102 /
+−0.086. The remaining spread is comparable to the SEs. So essentially all of the apparent
+family difference in nuclear position is composition plus replication timing, and what is
+left is a small, *shared* offset rather than a family-specific one.
+
+Effect sizes are 0.02–0.10 log2 units against a covariate-driven range of ~1.9, i.e.
+**compartment structure explains one to two orders of magnitude more than family identity
+does.** The SEs are tiny only because n is enormous; significance here is not importance.
+
+SVA tracks Alu rather than L1 — consistent with its Alu-derived, GC-rich composition rather
+than with its being a young hominid-specific element.
 
 ## Result 3: the L1 age gradient does not survive testing
 
@@ -131,34 +223,52 @@ the known L1HS→L1PA17 age ordering, it is not significant:**
 Only speckle reaches nominal significance, on 16 points, and would not survive correction
 across three axes. Within the series the values are non-monotone (L1PA4 −0.004, L1PA6
 −0.018, L1PA12 −0.037, L1PA17 −0.061) and span only ±0.05. SVA_A→SVA_F shows nothing
-(ρ = +0.486, p = 0.33).
+(ρ = +0.486, p = 0.33). Those figures are GC-only.
 
-What does hold is coarser: **L1M (oldest) vs L1P/L1HS differ on the lamina axis**, with L1M
-strongly depleted. That is a two-group contrast, not a graded gradient — do not describe it
-as one.
+**Under joint GC × RT control the pattern disappears altogether.** The positive tail of the
+lamina ranking collapses: the maximum subfamily lamina residual falls from **+0.202** (GC) to
+**+0.030** (joint), and the young L1s that headed the GC-only list land on their control —
+L1PBb +0.030 ± 0.077, L1PA8A +0.028 ± 0.019, L1PA7 +0.013 ± 0.007, L1PA5 +0.001 ± 0.007.
+**No subfamily is lamina-enriched once composition and replication timing are held fixed.**
+The subfamily spread also narrows (sd 0.114 → 0.088). Do not report a young-L1-at-the-lamina
+result.
 
-## Trap: GC matching does not absorb chromosome identity
+What survives is one-sided: a group of **old L1M subfamilies remains distinctly
+lamina-depleted** beyond both covariates — L1M4c −0.398 ± 0.029, L1M3de −0.325 ± 0.066,
+L1MDb −0.301 ± 0.042, L1MB2 −0.264 ± 0.022, all with `top_chrom_frac` 0.08–0.14, so not
+chromosome artifacts. That is the only subfamily-level signal in this stage that survives
+full control.
 
-**L1M3a is the largest outlier on every axis** (speckle residual +0.237, lamina −0.930,
-lamina−nucleolus −1.445, each 2–3× any other subfamily) at a below-average GC of 0.384 —
-which makes no sense compositionally. The reason is that **26% of its copies (17.7% of its
-bins) are on chr19**, the most gene-dense, speckle-proximal chromosome in the genome, whose
-compartment behaviour is not captured by bin-level GC.
+## Trap: neither GC nor RT absorbs chromosome identity
 
-`top_chrom_frac` is reported for this. Median across 179 subfamilies is 0.090 (≈ what
-chromosome sizes predict) and the max is 0.177, so the flag threshold is 0.15 — 8 subfamilies
-trip it. **A tripped row describes a chromosome, not a repeat family.** A chromosome-matched
-or replication-timing-matched control would be the fix; the Repli-seq is downloaded for it
-but not yet used.
+**L1M3a is the largest outlier on every axis and every control** — lamina residual −0.933
+(GC), −0.770 (RT), **−0.910 (joint)**; lamina−nucleolus −1.365 jointly, 2–3× any other
+subfamily — at a below-average GC of 0.384, which makes no compositional sense. The reason is
+that **26% of its copies (18% of its bins) are on chr19**, the most gene-dense,
+speckle-proximal chromosome in the genome.
+
+**Replication timing does not fix this**, which was the hope when the Repli-seq was pulled:
+the residual barely moves between covariates. Chromosome identity is a distinct confound from
+both composition and timing, and the fix is to stratify on chromosome explicitly (not yet
+done).
+
+`top_chrom_frac` is reported so the failure mode is visible. Median across 179 subfamilies is
+0.090 (≈ what chromosome sizes predict) and the max is 0.18, so the flag threshold is 0.15 —
+8 subfamilies trip it. **A tripped row describes a chromosome, not a repeat family.**
 
 ## Running it
 
 ```bash
 python src/nuclear/bin_covariates.py        # -> cache/bin_covariates_20000.npz (~4 min)
-python src/nuclear/te_nuclear_position.py   # -> results/nuclear/te_nuclear_position.tsv
+python src/nuclear/repliseq_timing.py       # -> cache/repliseq_rt_20000.npz     (~6 min)
+python src/nuclear/te_nuclear_position.py   # -> results/nuclear/te_nuclear_position_both.tsv
 ```
 
-`bin_covariates.py` is cached and depends only on the assembly and the rmsk table; rerun
+`--covariate {gc,rt,both}` selects the control and is part of the output filename, so the
+three runs cannot overwrite each other. Default `both`.
+
+`--gc-strata` defaults to 50 (see the convergence check above). `bin_covariates.py` is cached
+and depends only on the assembly and the rmsk table; rerun
 with `--force` only if `--bin` changes. The output table has 183 rows: 1 background,
 3 family, 179 subfamily (≥50 usable bins). Read `*_resid` for anything load-bearing and
 check `top_chrom_frac` before believing a subfamily.

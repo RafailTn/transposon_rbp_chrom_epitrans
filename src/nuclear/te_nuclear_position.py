@@ -108,8 +108,30 @@ def parse_args():
                    help="subfamilies occupying fewer usable BINS are dropped from "
                         "the per-subfamily table. Bins are the sample size here, "
                         "not copies -- see the docstring on pseudo-replication.")
-    p.add_argument("--deciles", type=int, default=10,
-                   help="number of GC strata for the residual")
+    p.add_argument("--covariate", choices=("gc", "rt", "both"), default="both",
+                   help="what to condition the residual on. gc = GC fraction "
+                        "(strongest single predictor: R2 0.70 speckle / 0.43 "
+                        "lamina). rt = replication timing from 16-fraction "
+                        "Repli-seq (0.52 / 0.41 -- WEAKER alone, measured not "
+                        "assumed). both = 2D grid, and it wins on both axes "
+                        "(0.77 / 0.53) because RT carries information GC does "
+                        "not, notably chromosome-scale structure. Default both.")
+    p.add_argument("--joint-strata", type=int, default=15,
+                   help="per-axis strata for --covariate both (15 -> 225 cells)")
+    p.add_argument("--min-cell", type=int, default=20,
+                   help="cells below this many bins fall back to the 1D GC "
+                        "stratum mean rather than estimating from noise")
+    p.add_argument("--min-s-total", type=float, default=1.0,
+                   help="minimum summed S-phase signal for a bin's RT to be "
+                        "trusted; RT is a ratio and is noise below this")
+    p.add_argument("--gc-strata", type=int, default=50, dest="deciles",
+                   help="number of equal-count GC strata for the residual. "
+                        "Default 50, not 10: quantile strata are wildly unequal "
+                        "in WIDTH (the top decile spans 0.194 GC units against "
+                        "~0.013 in the middle) precisely where Alu concentrates "
+                        "and the signal is steepest, so 10 leaves residual "
+                        "within-stratum GC. Estimates converge by ~50 and are "
+                        "stable to 500; see README.")
     return p.parse_args()
 
 
@@ -175,33 +197,98 @@ def main():
         print("  %-18s %d bins with signal  mean %+.3f" % (
             name, np.isfinite(v).sum(), np.nanmean(v)), flush=True)
 
+    # ---- replication timing, if it is being conditioned on ------------------
+    rt = s_tot = None
+    if a.covariate in ("rt", "both"):
+        rp = os.path.join(CACHE, "repliseq_rt_%d.npz" % a.bin)
+        if not os.path.exists(rp):
+            sys.exit("missing %s -- run src/nuclear/repliseq_timing.py first" % rp)
+        rz = np.load(rp)
+        rt = rz["rt"].astype(np.float64)
+        s_tot = rz["s_total"].astype(np.float64)
+        print("\nRT loaded: %s, corr(RT,GC) = %+.3f"
+              % (str(rz["direction"]), float(rz["corr_rt_gc"])))
+
     # ---- mask ----------------------------------------------------------------
     mask = (nfrac >= 0.10) | (sfrac >= 0.10) | ~np.isfinite(gc)
     for name in sig:
         mask |= ~np.isfinite(sig[name])
         mask |= sig[name] == 0.0
+    if rt is not None:
+        mask |= ~np.isfinite(rt) | (s_tot < a.min_s_total)
     usable = ~mask
     print("\nusable bins: %d of %d (%.1f%%)" % (usable.sum(), total,
                                                 100.0 * usable.mean()))
 
-    # ---- GC strata, on usable bins only -------------------------------------
-    edges = np.nanpercentile(gc[usable], np.linspace(0, 100, a.deciles + 1))
-    edges[0] -= 1e-9
-    edges[-1] += 1e-9
-    strat = np.full(total, -1, np.int8)
-    strat[usable] = np.clip(np.searchsorted(edges, gc[usable], side="right") - 1,
-                            0, a.deciles - 1)
+    # ---- stratification -----------------------------------------------------
+    def qstrat(cov, n):
+        e = np.nanpercentile(cov[usable], np.linspace(0, 100, n + 1))
+        e[0] -= 1e-9
+        e[-1] += 1e-9
+        s = np.full(total, -1, np.int32)
+        s[usable] = np.clip(np.searchsorted(e, cov[usable], side="right") - 1,
+                            0, n - 1)
+        return s, e
+
+    gstrat, gedges = qstrat(gc, a.deciles)
+    if a.covariate == "gc":
+        strat, ncell = gstrat, a.deciles
+        print("conditioning on GC: %d strata, widths %.4f-%.4f"
+              % (a.deciles, np.diff(gedges).min(), np.diff(gedges).max()))
+    elif a.covariate == "rt":
+        strat, redges = qstrat(rt, a.deciles)
+        ncell = a.deciles
+        print("conditioning on RT: %d strata, edges %.2f..%.2f"
+              % (a.deciles, redges[0], redges[-1]))
+    else:
+        n = a.joint_strata
+        sg, _ = qstrat(gc, n)
+        sr, _ = qstrat(rt, n)
+        strat = np.full(total, -1, np.int32)
+        strat[usable] = sg[usable] * n + sr[usable]
+        ncell = n * n
+        cnt = np.bincount(strat[usable], minlength=ncell)
+        thin = cnt < a.min_cell
+        print("conditioning on GC x RT: %dx%d = %d cells; %d occupied, "
+              "%d below --min-cell %d (those fall back to the GC stratum mean)"
+              % (n, n, ncell, (cnt > 0).sum(), (thin & (cnt > 0)).sum(), a.min_cell))
+
+    # Per-cell mean signal. Cells too thin to estimate fall back to the 1D GC
+    # stratum mean, so a sparse corner of the GC x RT grid contributes its
+    # marginal expectation rather than one bin's noise.
     smean = {}
+    gmean = {}
     for name in sig:
-        m = np.full(a.deciles, np.nan)
-        for d in range(a.deciles):
-            k = usable & (strat == d)
-            if k.any():
-                m[d] = sig[name][k].mean()
+        gm = np.array([sig[name][usable & (gstrat == d)].mean()
+                       if (usable & (gstrat == d)).any() else np.nan
+                       for d in range(a.deciles)])
+        gmean[name] = gm
+        m = np.full(ncell, np.nan)
+        idx = strat[usable]
+        v = sig[name][usable]
+        sums = np.bincount(idx, weights=v, minlength=ncell)
+        cnts = np.bincount(idx, minlength=ncell)
+        good = cnts >= (a.min_cell if a.covariate == "both" else 1)
+        m[good] = sums[good] / cnts[good]
         smean[name] = m
-    print("GC deciles (usable bins): %s" % np.round(edges, 3))
-    print("  speckle  by decile: %s" % np.round(smean["speckle"], 2))
-    print("  lamina   by decile: %s" % np.round(smean["lamina"], 2))
+
+    # One expected-value array per axis, so the fallback is resolved once rather
+    # than per subfamily. Where the joint cell was too thin, the bin takes its
+    # marginal GC-stratum expectation.
+    expect = {}
+    for name in sig:
+        e = np.full(total, np.nan)
+        e[usable] = smean[name][strat[usable]]
+        thin_bins = usable & ~np.isfinite(e)
+        e[thin_bins] = gmean[name][gstrat[thin_bins]]
+        expect[name] = e
+        if thin_bins.any():
+            pass
+    dec = np.nanpercentile(gc[usable], np.linspace(0, 100, 11))
+    di = np.clip(np.searchsorted(dec, gc[usable], side="right") - 1, 0, 9)
+    for nm in ("speckle", "lamina"):
+        print("  %-8s by GC decile: %s" % (nm, np.round(
+            [sig[nm][usable][di == d].mean() for d in range(10)], 2)))
 
     # ---- TE copies ----------------------------------------------------------
     print("\nreading TE copies ...", flush=True)
@@ -288,18 +375,19 @@ def main():
                 r["family"] = fs.pop() if len(fs) == 1 else "|".join(sorted(fs))
             else:
                 r["family"] = lab
-            st = strat[ub]
+            cell = strat[ub]
             for nm in names:
                 v = sig[nm][ub]
                 m, se = wstat(v, w)
-                mr, ser = wstat(v - smean[nm][st], w)
+                mr, ser = wstat(v - expect[nm][ub], w)
                 r["%s_mean" % nm] = m
                 r["%s_se" % nm] = se
                 r["%s_resid" % nm] = mr
                 r["%s_resid_se" % nm] = ser
             lm = sig["lamina"][ub] - sig["nucleolus_MKI67IP"][ub]
-            lmr = ((sig["lamina"][ub] - smean["lamina"][st])
-                   - (sig["nucleolus_MKI67IP"][ub] - smean["nucleolus_MKI67IP"][st]))
+            lmr = ((sig["lamina"][ub] - expect["lamina"][ub])
+                   - (sig["nucleolus_MKI67IP"][ub]
+                      - expect["nucleolus_MKI67IP"][ub]))
             r["lam_minus_nuc"], r["lam_minus_nuc_se"] = wstat(lm, w)
             r["lam_minus_nuc_resid"], r["lam_minus_nuc_resid_se"] = wstat(lmr, w)
             out.append(r)
@@ -329,7 +417,7 @@ def main():
                for s in ("mean", "se", "resid", "resid_se")]
             + ["lam_minus_nuc", "lam_minus_nuc_se",
                "lam_minus_nuc_resid", "lam_minus_nuc_resid_se"])
-    path = os.path.join(OUT, "te_nuclear_position.tsv")
+    path = os.path.join(OUT, "te_nuclear_position_%s.tsv" % a.covariate)
     with open(path, "w") as fh:
         fh.write("\t".join(cols) + "\n")
         for r in [bg] + allrows + sorted(subrows, key=lambda x: (x["family"], x["name"])):
