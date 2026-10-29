@@ -1,0 +1,71 @@
+[workspace]
+authors = ["RafailTn <rafailadam46@gmail.com>"]
+name = "deps_chrrna"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+version = "0.1.0"
+
+# Self-contained toolchain for the src/chrrna pipeline (GSE296212 re-quantification).
+#
+# SEPARATE FROM deps/ ON PURPOSE. deps/ pins python, numpy, scipy and matplotlib
+# with '==' because results/eclip/ must reproduce byte-for-byte, and pulling STAR,
+# sra-tools and DESeq2 into that solve would force those pins to move. Nothing
+# here is shared with deps/; the two are installed and upgraded independently.
+#
+# Install on the server:   cd deps_chrrna && pixi install
+# Tasks call the scripts in ../src/; their default paths resolve to the project root.
+# Then either  `pixi run <cmd>`  or use deps_chrrna/.pixi/envs/default/bin/ directly.
+
+[dependencies]
+# --- alignment -------------------------------------------------------------
+# STAR is pinned EXACTLY to the version in the GSE296212 methods. This is the one
+# pin that carries scientific weight: --outFilterMultimapNmax 10000 with
+# --outMultimapperOrder Random means multi-mapper handling *is* the measurement
+# for repeat elements, and that behaviour is not guaranteed stable across STAR
+# releases. Loosen this and the Alu/SVA numbers stop being comparable to the
+# authors' published L1 numbers.
+star = "==2.7.2b"
+
+# --- read prep -------------------------------------------------------------
+sra-tools = ">=3.0"
+pigz = ">=2.6"
+# The authors used cutadapt 1.9.1, which predates Python 3 and cannot coexist
+# with the rest of this toolchain. Adapter removal is not a step where versions
+# diverge meaningfully -- see the note in 01_trim.sh.
+cutadapt = ">=4.0"
+
+# --- quantification --------------------------------------------------------
+subread = ">=2.0"          # featureCounts
+samtools = ">=1.17"
+
+# --- analysis --------------------------------------------------------------
+# Loose pins: nothing here feeds a committed table, unlike deps/.
+python = "3.12.*"
+numpy = ">=2.0"
+r-base = ">=4.3"
+bioconductor-deseq2 = ">=1.42"
+bioconductor-fgsea = ">=1.36.2,<2"
+r-msigdbr = ">=26.1.1,<27"
+
+[tasks]
+# Convenience wrappers so the pipeline can be driven without hardcoding paths.
+# Override defaults with env vars, e.g.  THREADS=32 pixi run align
+make-saf = { cmd = "python ../src/make_saf.py" }
+fetch = { cmd = "bash ../src/00_fetch.sh" }
+trim = { cmd = "bash ../src/01_trim.sh" }
+align = { cmd = "bash ../src/03_align.sh" }
+strandedness = { cmd = "bash ../src/04_strandedness.sh" }
+count = { cmd = "bash ../src/05_count.sh" }
+enrich = { cmd = "python ../src/06_enrich_chrrna.py" }
+deseq2 = { cmd = "Rscript ../src/07_deseq2.R" }
+
+# --- EM quantification arm (12_align_multi.sh / 13_em_count.sh) ---------------
+# TEtranscripts' TEcount resolves multi-mappers by EM instead of STAR's random
+# single placement. It needs python 3.10, which cannot share a solve with the
+# python 3.12 above, so it lives in its own environment:
+#   pixi install -e em   ->   .pixi/envs/em/bin/TEcount
+[feature.em.dependencies]
+tetranscripts = ">=2.2.3"
+
+[environments]
+em = { features = ["em"], no-default-feature = true }
