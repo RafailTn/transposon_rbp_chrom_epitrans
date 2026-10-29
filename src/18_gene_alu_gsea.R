@@ -25,12 +25,23 @@
 # statistic AND on its residual after regressing those out, and only themes that
 # survive the adjustment should be trusted.
 #
-# Usage: Rscript 18_gene_alu_gsea.R [results_dir]
+# Other families: pass the family as the second argument (Rscript
+# 18_gene_alu_gsea.R results L1) to read gene_l1_counts.tsv from 17 run with
+# FAMILY=L1; outputs are named gene_l1_*. The lineage-mix covariates are the
+# fractions of every n_<lineage> column 17 wrote except the most common one (for
+# Alu: AluJ and AluY, AluS the reference). If 17 also wrote
+# gene_<fam>_group_counts.tsv, each lineage is scored on its own with the same
+# model, into gene_<fam>_group_retention.tsv, for 19 to test with expression
+# matching.
+#
+# Usage: Rscript 18_gene_alu_gsea.R [results_dir] [family]
 
 args <- commandArgs(trailingOnly = TRUE)
 # Project root = the parent of src/, wherever this is run from.
 root <- normalizePath(file.path(dirname(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1])), ".."))
 res_dir <- if (length(args) >= 1) args[1] else file.path(root, "results")
+family <- if (length(args) >= 2) args[2] else "Alu"
+te <- tolower(family)
 suppressPackageStartupMessages({
   library(DESeq2)
   library(fgsea)
@@ -38,77 +49,114 @@ suppressPackageStartupMessages({
 })
 set.seed(1)
 
-tab <- read.delim(file.path(res_dir, "gene_alu_counts.tsv"), check.names = FALSE)
+tab0 <- read.delim(file.path(res_dir, sprintf("gene_%s_counts.tsv", te)), check.names = FALSE)
 libs <- c("K562_chr_Takara_rep1", "K562_chr_Takara_rep2",
           "K562_cyto_Takara_rep1", "K562_cyto_Takara_rep2")
 sf <- read.delim(file.path(res_dir, "size_factors.tsv"), row.names = 1)[libs, "sf_gene"]
 
-alu <- as.matrix(tab[, paste0("alu_", libs)])
-intr <- as.matrix(tab[, paste0("intron_", libs)])
-expr <- as.matrix(tab[, paste0("expr_", libs)])
-# Floors, not effect filters: enough Alu and intron reads for a per-gene ratio,
+# Floors, not effect filters: enough TE and intron reads for a per-gene ratio,
 # and a gene actually expressed in K562.
-keep <- rowSums(alu) >= 20 & rowSums(intr) >= 50 & rowSums(expr) >= 40 &
-        rowSums(alu[, 3:4]) + rowSums(intr[, 3:4]) > 0 &
-        !grepl("_PAR_Y", tab$gene_id)    # chrY PAR copies share the X gene's Ensembl id
-cat(sprintf("%d genes with intron_same Alus; %d pass the read floors\n", nrow(tab), sum(keep)))
-tab <- tab[keep, ]
-alu <- alu[keep, ]
-intr <- intr[keep, ]
-expr <- expr[keep, ]
+passes <- function(tcnt, icnt, ecnt, ids) {
+  rowSums(tcnt) >= 20 & rowSums(icnt) >= 50 & rowSums(ecnt) >= 40 &
+    rowSums(tcnt[, 3:4]) + rowSums(icnt[, 3:4]) > 0 &
+    !grepl("_PAR_Y", ids)    # chrY PAR copies share the X gene's Ensembl id
+}
 
-mat <- cbind(alu, intr)
-colnames(mat) <- c(paste0("alu.", libs), paste0("intron.", libs))
-rownames(mat) <- sub("\\..*$", "", tab$gene_id)
-mode(mat) <- "integer"
-cd <- data.frame(
-  lib = factor(rep(libs, 2)),
-  type = factor(rep(c("alu", "intron"), each = 4), levels = c("intron", "alu")),
-  row.names = colnames(mat))
-cd$aluChr <- as.numeric(cd$type == "alu" & grepl("_chr_", cd$lib))
+# One DESeq2 fit of TE vs own-intron retention; returns the aluChr results.
+fit_score <- function(tcnt, icnt, ids) {
+  mat <- cbind(tcnt, icnt)
+  colnames(mat) <- c(paste0(te, ".", libs), paste0("intron.", libs))
+  rownames(mat) <- sub("\\..*$", "", ids)
+  mode(mat) <- "integer"
+  cd <- data.frame(
+    lib = factor(rep(libs, 2)),
+    type = factor(rep(c(te, "intron"), each = 4), levels = c("intron", te)),
+    row.names = colnames(mat))
+  cd$aluChr <- as.numeric(cd$type == te & grepl("_chr_", cd$lib))
+  dds <- DESeqDataSetFromMatrix(mat, cd, ~ lib + type + aluChr)
+  sizeFactors(dds) <- rep(sf, 2)
+  dds <- DESeq(dds, quiet = TRUE)
+  results(dds, name = "aluChr")
+}
 
-dds <- DESeqDataSetFromMatrix(mat, cd, ~ lib + type + aluChr)
-sizeFactors(dds) <- rep(sf, 2)
-dds <- DESeq(dds, quiet = TRUE)
-r <- results(dds, name = "aluChr")
-cat(sprintf("score (Alu minus intron retention): median %.2f, %d genes padj<0.05 (%d up, %d down)\n",
-            median(r$log2FoldChange, na.rm = TRUE), sum(r$padj < 0.05, na.rm = TRUE),
+expr0 <- as.matrix(tab0[, paste0("expr_", libs)])
+intr0 <- as.matrix(tab0[, paste0("intron_", libs)])
+keep <- passes(as.matrix(tab0[, paste0(te, "_", libs)]), intr0, expr0, tab0$gene_id)
+cat(sprintf("%d genes with intron_same %s; %d pass the read floors\n", nrow(tab0), family, sum(keep)))
+tab <- tab0[keep, ]
+alu <- as.matrix(tab[, paste0(te, "_", libs)])
+intr <- intr0[keep, ]
+expr <- expr0[keep, ]
+
+r <- fit_score(alu, intr, tab$gene_id)
+cat(sprintf("score (%s minus intron retention): median %.2f, %d genes padj<0.05 (%d up, %d down)\n",
+            family, median(r$log2FoldChange, na.rm = TRUE), sum(r$padj < 0.05, na.rm = TRUE),
             sum(r$padj < 0.05 & r$log2FoldChange > 0, na.rm = TRUE),
             sum(r$padj < 0.05 & r$log2FoldChange < 0, na.rm = TRUE)))
 
 # Covariates and the adjusted statistic.
+n_te <- tab[[paste0("n_", te)]]
+grp_cols <- setdiff(grep("^n_", names(tab), value = TRUE), paste0("n_", te))
+ref_col <- grp_cols[which.max(colSums(tab[, grp_cols, drop = FALSE]))]
 nexpr <- sweep(expr, 2, sf, "/")
-cov <- data.frame(
-  log_gene_len = log10(tab$gene_len),
-  log_intron_bp = log10(tab$intron_bp + 1),
-  log_n_alu = log10(tab$n_alu),
-  frac_aluJ = tab$n_aluJ / tab$n_alu,
-  frac_aluY = tab$n_aluY / tab$n_alu,
-  log_expr_chr = log10(rowMeans(nexpr[, 1:2]) + 1),
-  log_expr_cyto = log10(rowMeans(nexpr[, 3:4]) + 1),
-  log_alu_depth = log10(rowSums(alu) + 1))
+cov <- data.frame(log_gene_len = log10(tab$gene_len),
+                  log_intron_bp = log10(tab$intron_bp + 1))
+cov[[paste0("log_n_", te)]] <- log10(n_te)
+for (g in setdiff(grp_cols, ref_col)) cov[[sub("^n_", "frac_", g)]] <- tab[[g]] / n_te
+cov$log_expr_chr <- log10(rowMeans(nexpr[, 1:2]) + 1)
+cov$log_expr_cyto <- log10(rowMeans(nexpr[, 3:4]) + 1)
+cov[[paste0("log_", te, "_depth")]] <- log10(rowSums(alu) + 1)
 ok <- !is.na(r$stat)
 stat <- r$stat[ok]
 names(stat) <- rownames(r)[ok]
 cv <- cov[ok, ]
 cat("\nSpearman of the statistic with covariates:\n")
 for (v in colnames(cv)) cat(sprintf("  %-14s %+.3f\n", v, cor(stat, cv[[v]], method = "spearman")))
-fit <- lm(stat ~ splines::ns(log_gene_len, 3) + splines::ns(log_intron_bp, 3) +
-            splines::ns(log_n_alu, 3) + frac_aluJ + frac_aluY +
-            splines::ns(log_expr_chr, 3) + splines::ns(log_expr_cyto, 3) +
-            splines::ns(log_alu_depth, 3), data = cv)
+# Splines on the continuous covariates, linear in the lineage fractions.
+terms <- ifelse(grepl("^frac_", colnames(cv)), colnames(cv),
+                sprintf("splines::ns(%s, 3)", colnames(cv)))
+fit <- lm(as.formula(paste("stat ~", paste(terms, collapse = " + "))), data = cv)
 cat(sprintf("covariates explain R^2 = %.3f of the statistic\n", summary(fit)$r.squared))
 stat_adj <- residuals(fit)
 names(stat_adj) <- names(stat)
 
 genes_out <- data.frame(gene_id = tab$gene_id, gene_name = tab$gene_name,
-                        n_alu = tab$n_alu, baseMean = r$baseMean,
+                        n_te = n_te, baseMean = r$baseMean,
                         score_log2 = r$log2FoldChange, lfcSE = r$lfcSE,
                         stat = r$stat, padj = r$padj)
+names(genes_out)[3] <- paste0("n_", te)
 genes_out$stat_adj <- NA
 genes_out$stat_adj[ok] <- stat_adj
-write.table(genes_out[order(-genes_out$stat), ], file.path(res_dir, "gene_alu_retention.tsv"),
+write.table(genes_out[order(-genes_out$stat), ], file.path(res_dir, sprintf("gene_%s_retention.tsv", te)),
             sep = "\t", quote = FALSE, row.names = FALSE)
+
+# Per-lineage scores, same model and floors, each lineage's own reads only.
+gfile <- file.path(res_dir, sprintf("gene_%s_group_counts.tsv", te))
+if (file.exists(gfile)) {
+  gcnt <- read.delim(gfile, check.names = FALSE)
+  cat("\nper-lineage scores:\n")
+  gres <- list()
+  for (g in sort(unique(gcnt$group))) {
+    x <- gcnt[gcnt$group == g, ]
+    m <- match(x$gene_id, tab0$gene_id)
+    tc <- as.matrix(x[, paste0(te, "_", libs)])
+    k <- passes(tc, intr0[m, , drop = FALSE], expr0[m, , drop = FALSE], x$gene_id)
+    if (sum(k) < 100) {
+      cat(sprintf("  %-6s %5d genes pass the floors -- too few, skipped\n", g, sum(k)))
+      next
+    }
+    rg <- fit_score(tc[k, ], intr0[m[k], ], x$gene_id[k])
+    cat(sprintf("  %-6s %5d genes  median score %+.2f  %d padj<0.05 (%d up, %d down)\n", g, sum(k),
+                median(rg$log2FoldChange, na.rm = TRUE), sum(rg$padj < 0.05, na.rm = TRUE),
+                sum(rg$padj < 0.05 & rg$log2FoldChange > 0, na.rm = TRUE),
+                sum(rg$padj < 0.05 & rg$log2FoldChange < 0, na.rm = TRUE)))
+    gres[[g]] <- data.frame(group = g, gene_id = x$gene_id[k], gene_name = tab0$gene_name[m[k]],
+                            baseMean = rg$baseMean, score_log2 = rg$log2FoldChange,
+                            lfcSE = rg$lfcSE, stat = rg$stat, padj = rg$padj)
+  }
+  write.table(do.call(rbind, gres), file.path(res_dir, sprintf("gene_%s_group_retention.tsv", te)),
+              sep = "\t", quote = FALSE, row.names = FALSE)
+}
 
 # Gene sets.
 get_sets <- function(coll, sub = NULL) {
@@ -135,7 +183,7 @@ for (which in c("raw", "adjusted")) {
 gs <- do.call(rbind, all_res)
 gs <- gs[order(gs$statistic, gs$collection, gs$padj), ]
 write.table(gs[, c("statistic", "collection", "pathway", "size", "NES", "pval", "padj", "leadingEdge")],
-            file.path(res_dir, "gene_alu_gsea.tsv"), sep = "\t", quote = FALSE, row.names = FALSE)
+            file.path(res_dir, sprintf("gene_%s_gsea.tsv", te)), sep = "\t", quote = FALSE, row.names = FALSE)
 
 cat(sprintf("\nuniverse: %d genes\n", length(stat)))
 for (which in c("raw", "adjusted")) {

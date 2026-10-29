@@ -24,12 +24,21 @@
 #
 # Writes results/gene_alu_gsea_matched.tsv and results/gene_alu_matched_sets.tsv.
 #
-# Usage: Rscript 19_gene_alu_matched.R [results_dir]
+# Other families: second argument, as in 18 (Rscript 19_gene_alu_matched.R
+# results L1). The named candidates above came from the Alu run, so for any other
+# family every Hallmark set is checked with matched controls as well. When 18
+# wrote gene_<fam>_group_retention.tsv, each lineage also gets the stratified
+# GSEA (z_joint, strata built within that lineage's genes), into
+# gene_<fam>_group_gsea_matched.tsv.
+#
+# Usage: Rscript 19_gene_alu_matched.R [results_dir] [family]
 
 args <- commandArgs(trailingOnly = TRUE)
 # Project root = the parent of src/, wherever this is run from.
 root <- normalizePath(file.path(dirname(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1])), ".."))
 res_dir <- if (length(args) >= 1) args[1] else file.path(root, "results")
+family <- if (length(args) >= 2) args[2] else "Alu"
+te <- tolower(family)
 suppressPackageStartupMessages({
   library(fgsea)
   library(msigdbr)
@@ -39,10 +48,10 @@ set.seed(1)
 libs <- c("K562_chr_Takara_rep1", "K562_chr_Takara_rep2",
           "K562_cyto_Takara_rep1", "K562_cyto_Takara_rep2")
 sf <- read.delim(file.path(res_dir, "size_factors.tsv"), row.names = 1)[libs, "sf_gene"]
-cnt <- read.delim(file.path(res_dir, "gene_alu_counts.tsv"), check.names = FALSE)
-ret <- read.delim(file.path(res_dir, "gene_alu_retention.tsv"))
+cnt <- read.delim(file.path(res_dir, sprintf("gene_%s_counts.tsv", te)), check.names = FALSE)
+ret <- read.delim(file.path(res_dir, sprintf("gene_%s_retention.tsv", te)))
 ret <- ret[!is.na(ret$stat), ]
-d <- merge(ret, cnt, by = c("gene_id", "gene_name", "n_alu"))
+d <- merge(ret, cnt, by = c("gene_id", "gene_name", paste0("n_", te)))
 nexpr <- sweep(as.matrix(d[, paste0("expr_", libs)]), 2, sf, "/")
 d$x_chr <- log10(rowMeans(nexpr[, 1:2]) + 1)
 d$x_cyto <- log10(rowMeans(nexpr[, 3:4]) + 1)
@@ -99,7 +108,7 @@ for (which in c("z_expr", "z_joint")) {
 gs <- do.call(rbind, all_res)
 gs <- gs[order(gs$statistic, gs$collection, gs$padj), ]
 write.table(gs[, c("statistic", "collection", "pathway", "size", "NES", "pval", "padj", "leadingEdge")],
-            file.path(res_dir, "gene_alu_gsea_matched.tsv"), sep = "\t", quote = FALSE, row.names = FALSE)
+            file.path(res_dir, sprintf("gene_%s_gsea_matched.tsv", te)), sep = "\t", quote = FALSE, row.names = FALSE)
 for (which in c("z_expr", "z_joint")) {
   for (coll in names(sets)) {
     x <- gs[gs$statistic == which & gs$collection == coll & !is.na(gs$padj), ]
@@ -119,6 +128,7 @@ cand <- c("HALLMARK_MYC_TARGETS_V1", "HALLMARK_OXIDATIVE_PHOSPHORYLATION",
           "HALLMARK_UV_RESPONSE_DN", "GOBP_TRANSLATION", "GOBP_RNA_SPLICING",
           "GOBP_RIBOSOME_BIOGENESIS", "REACTOME_MRNA_SPLICING")
 pool <- c(sets$H, sets$GOBP, sets$REACTOME)
+if (family != "Alu") cand <- union(cand, names(sets$H))
 X <- scale(as.matrix(d[, c("x_chr", "x_cyto", "x_len")]))
 K <- 10
 B <- 10000
@@ -145,4 +155,49 @@ for (nm in cand) {
 }
 ms_tab <- do.call(rbind, rows)
 ms_tab$padj <- p.adjust(ms_tab$p_emp, "BH")
-write.table(ms_tab, file.path(res_dir, "gene_alu_matched_sets.tsv"), sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(ms_tab, file.path(res_dir, sprintf("gene_%s_matched_sets.tsv", te)), sep = "\t", quote = FALSE, row.names = FALSE)
+
+# Per-lineage stratified GSEA: each lineage's genes ranked only against
+# lineage-mates of similar expression and length.
+gfile <- file.path(res_dir, sprintf("gene_%s_group_retention.tsv", te))
+if (file.exists(gfile)) {
+  gret <- read.delim(gfile)
+  gret <- gret[!is.na(gret$stat), ]
+  cov_g <- cnt
+  nx <- sweep(as.matrix(cov_g[, paste0("expr_", libs)]), 2, sf, "/")
+  cov_g <- data.frame(gene_id = cov_g$gene_id, x_chr = log10(rowMeans(nx[, 1:2]) + 1),
+                      x_cyto = log10(rowMeans(nx[, 3:4]) + 1), x_len = log10(cov_g$gene_len))
+  gall <- list()
+  for (g in unique(gret$group)) {
+    dg <- merge(gret[gret$group == g, ], cov_g, by = "gene_id")
+    dg$ens <- sub("\\..*$", "", dg$gene_id)
+    dg$z_joint <- within_score(dg$stat, interaction(q(dg$x_chr, 5), q(dg$x_cyto, 5),
+                                                     q(dg$x_len, 3), drop = TRUE))
+    symg <- setNames(dg$gene_name, dg$ens)
+    s <- setNames(dg$z_joint, dg$ens)
+    for (coll in names(sets)) {
+      x <- fgsea(sets[[coll]], s, minSize = 15, maxSize = 500, eps = 0)
+      if (!nrow(x)) next
+      x$group <- g
+      x$n_genes <- nrow(dg)
+      x$collection <- coll
+      x$leadingEdge <- vapply(x$leadingEdge, function(y) paste(head(symg[y], 15), collapse = ","), "")
+      gall[[length(gall) + 1]] <- as.data.frame(x)
+    }
+  }
+  gg <- do.call(rbind, gall)
+  gg <- gg[order(gg$group, gg$collection, gg$padj), ]
+  write.table(gg[, c("group", "n_genes", "collection", "pathway", "size", "NES", "pval", "padj", "leadingEdge")],
+              file.path(res_dir, sprintf("gene_%s_group_gsea_matched.tsv", te)),
+              sep = "\t", quote = FALSE, row.names = FALSE)
+  cat("\n== per-lineage z_joint GSEA (padj<0.25 shown)\n")
+  for (g in unique(gg$group)) {
+    x <- gg[gg$group == g & !is.na(gg$padj), ]
+    cat(sprintf("\n  %s: %d genes, %d sets padj<0.05, %d padj<0.25\n", g, x$n_genes[1],
+                sum(x$padj < 0.05), sum(x$padj < 0.25)))
+    x <- head(x[order(x$padj), ][x$padj[order(x$padj)] < 0.25, ], 8)
+    if (nrow(x)) for (i in seq_len(nrow(x)))
+      cat(sprintf("    %-8s %-52s n=%3d NES=%+5.2f padj=%.2g  %s\n", x$collection[i], substr(x$pathway[i], 1, 52),
+                  x$size[i], x$NES[i], x$padj[i], substr(x$leadingEdge[i], 1, 50)))
+  }
+}

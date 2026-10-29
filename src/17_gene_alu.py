@@ -26,7 +26,15 @@ Writes data/gene_alu/{alu,intron}.saf, counts in work/gene_alu_counts/, and
 results/gene_alu_counts.tsv with covariates (gene length, intron bp, n Alu,
 gene expression) for 18.
 
-Usage: 17_gene_alu.py [bam_dir] [gencode.gtf.gz]
+OTHER FAMILIES. FAMILY=L1 runs the same test on intron_same L1 copies, into
+data/gene_l1/, work/gene_l1_counts/ and results/gene_l1_counts.tsv. The TE SAF
+ids are <gene>|<lineage> (GROUPS below), so the same counts also give a
+per-lineage table, results/gene_<fam>_group_counts.tsv: per-gene counts are
+too thin for single subfamilies, but lineages hold enough unique reads. The
+Alu run predates this and was counted with plain gene ids, so it has no
+lineage table.
+
+Usage: [FAMILY=Alu|L1] 17_gene_alu.py [bam_dir] [gencode.gtf.gz]
 """
 import bisect
 import gzip
@@ -41,10 +49,29 @@ ROOT = os.path.dirname(HERE)          # project root; scripts live in src/
 BAMDIR = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "work", "bam")
 GTF = sys.argv[2] if len(sys.argv) > 2 else (
     "/mnt/raid1/rafail/aluaca/ref/gencode.v47.primary_assembly.annotation.gtf.gz")
-DATA = os.path.join(ROOT, "data", "gene_alu")
-CNT = os.path.join(ROOT, "work", "gene_alu_counts")
+FAMILY = os.environ.get("FAMILY", "Alu")
+TE = FAMILY.lower()                   # file and column prefix: alu, l1
+DATA = os.path.join(ROOT, "data", "gene_%s" % TE)
+CNT = os.path.join(ROOT, "work", "gene_%s_counts" % TE)
 RES = os.path.join(ROOT, "results")
 THREADS = os.environ.get("THREADS", "16")
+
+# Lineages per family, as (covariate column, subfamily prefixes). First match
+# wins, so L1PA must precede the L1P catch-all and the L1M* lineages the
+# numbered-L1M catch-all. The Alu columns keep their original names.
+GROUPS = {
+    "Alu": [("aluJ", ("AluJ",)), ("aluS", ("AluS",)), ("aluY", ("AluY",))],
+    "L1": [("L1PA", ("L1HS", "L1PA")), ("L1P", ("L1P",)), ("L1MA", ("L1MA",)),
+           ("L1MB", ("L1MB",)), ("L1MC", ("L1MC",)), ("L1MD", ("L1MD",)),
+           ("L1ME", ("L1ME",)), ("L1M", ("L1M",))],
+}[FAMILY]
+
+
+def group_of(sub):
+    for name, prefixes in GROUPS:
+        if sub.startswith(prefixes):
+            return name
+    return "other"
 
 # Interval helpers and the gene-type / rDNA definitions from 08, not re-derived.
 _spec = importlib.util.spec_from_file_location("ctx", os.path.join(HERE, "08_context.py"))
@@ -92,7 +119,7 @@ def build():
             start = pos
 
     te_all = defaultdict(list)
-    alu = []
+    tes = []
     ctx_lab = {}
     with open(os.path.join(ROOT, "data", "te_context.tsv")) as fh:
         next(fh)
@@ -105,16 +132,16 @@ def build():
             gid, sub, fam, chrom, s, e, strand = line.rstrip("\n").split("\t")
             s, e = int(s), int(e)
             te_all[chrom].append([s, e])
-            if fam == "Alu" and ctx_lab[gid] == "intron_same":
-                alu.append((gid, sub, chrom, s, e, strand))
+            if fam == FAMILY and ctx_lab[gid] == "intron_same":
+                tes.append((gid, sub, chrom, s, e, strand))
 
-    # Assign each Alu to the single same-strand gene whose body holds its
+    # Assign each TE copy to the single same-strand gene whose body holds its
     # midpoint: one sweep per (chrom, strand) over genes sorted by start.
-    alu_by = defaultdict(list)
-    for gid, sub, chrom, s, e, strand in alu:
-        alu_by[(chrom, strand)].append(((s + e) // 2, chrom, s, e, strand, sub))
-    alu_gene = defaultdict(list)
-    for k, items in alu_by.items():
+    te_by = defaultdict(list)
+    for gid, sub, chrom, s, e, strand in tes:
+        te_by[(chrom, strand)].append(((s + e) // 2, chrom, s, e, strand, sub))
+    te_gene = defaultdict(list)
+    for k, items in te_by.items():
         gl = sorted(by_cs.get(k, []))
         items.sort()
         i, active = 0, []
@@ -124,13 +151,13 @@ def build():
                 i += 1
             active = [x for x in active if x[1] >= mid]
             if len(active) == 1:
-                alu_gene[active[0][2]].append((chrom, s, e, strand, sub))
+                te_gene[active[0][2]].append((chrom, s, e, strand, sub))
 
-    with open(os.path.join(DATA, "alu.saf"), "w") as fh:
+    with open(os.path.join(DATA, "%s.saf" % TE), "w") as fh:
         fh.write("GeneID\tChr\tStart\tEnd\tStrand\n")
-        for g in sorted(alu_gene):
-            for chrom, s, e, strand, _ in alu_gene[g]:
-                fh.write("%s\t%s\t%d\t%d\t%s\n" % (g, chrom, s, e, strand))
+        for g in sorted(te_gene):
+            for chrom, s, e, strand, sub in te_gene[g]:
+                fh.write("%s|%s\t%s\t%d\t%d\t%s\n" % (g, group_of(sub), chrom, s, e, strand))
 
     # One merged mask per (chrom, strand); each gene subtracts only the slice
     # of it that overlaps its body.
@@ -141,10 +168,11 @@ def build():
                              + [[a, b] for mc, a, b in ctx.RDNA_MASK if mc == chrom])
     mstarts = {k: [x[0] for x in v] for k, v in masks.items()}
     cov = open(os.path.join(DATA, "covariates.tsv"), "w")
-    cov.write("gene_id\tgene_name\tgene_len\tintron_bp\tn_alu\tn_aluJ\tn_aluS\tn_aluY\n")
+    cov.write("\t".join(["gene_id", "gene_name", "gene_len", "intron_bp", "n_" + TE]
+                         + ["n_" + name for name, _ in GROUPS]) + "\n")
     with open(os.path.join(DATA, "intron.saf"), "w") as fh:
         fh.write("GeneID\tChr\tStart\tEnd\tStrand\n")
-        for g in sorted(alu_gene):
+        for g in sorted(te_gene):
             chrom, strand, s, e, name = genes[g]
             k = (chrom, strand)
             lo = max(0, bisect.bisect_right(mstarts[k], s) - 1)
@@ -153,15 +181,12 @@ def build():
             bp = sum(b - a + 1 for a, b in ivs)
             for a, b in ivs:
                 fh.write("%s\t%s\t%d\t%d\t%s\n" % (g, chrom, a, b, strand))
-            subs = [x[4] for x in alu_gene[g]]
-            cov.write("%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n" % (
-                g, name, e - s + 1, bp, len(subs),
-                sum(x.startswith("AluJ") for x in subs),
-                sum(x.startswith("AluS") for x in subs),
-                sum(x.startswith("AluY") for x in subs)))
+            grp = [group_of(x[4]) for x in te_gene[g]]
+            cov.write("\t".join([g, name, str(e - s + 1), str(bp), str(len(grp))]
+                                 + [str(grp.count(n)) for n, _ in GROUPS]) + "\n")
     cov.close()
-    print("%d genes carry intron_same Alus assigned to a single gene (%d Alu copies)"
-          % (len(alu_gene), sum(len(v) for v in alu_gene.values())))
+    print("%d genes carry intron_same %s copies assigned to a single gene (%d copies)"
+          % (len(te_gene), FAMILY, sum(len(v) for v in te_gene.values())))
 
 
 def count():
@@ -169,7 +194,7 @@ def count():
     for s in samples():
         bam = os.path.join(BAMDIR, "%s.Aligned.sortedByCoord.out.bam" % s)
         strand = os.environ.get("STRAND_" + s, os.environ.get("STRAND_DEFAULT", "2"))
-        for kind in ("alu", "intron"):
+        for kind in (TE, "intron"):
             out = os.path.join(CNT, "%s.%s.txt" % (s, kind))
             if os.path.exists(out) and os.path.getsize(out):
                 continue
@@ -194,30 +219,45 @@ def read_fc(path):
 
 def assemble():
     ss = samples()
-    alu = {s: read_fc(os.path.join(CNT, "%s.alu.txt" % s)) for s in ss}
+    # TE ids are <gene>|<lineage>; the per-gene table sums lineages. A fragment
+    # spanning two adjacent copies of different lineages in one gene is
+    # ambiguous to featureCounts and left out, a small loss beside unique-only.
+    raw = {s: read_fc(os.path.join(CNT, "%s.%s.txt" % (s, TE))) for s in ss}
+    te = {s: defaultdict(int) for s in ss}
+    grp = {s: defaultdict(int) for s in ss}
+    for s in ss:
+        for k, v in raw[s].items():
+            te[s][k.split("|")[0]] += v
+            if "|" in k:
+                grp[s][k] += v
     intr = {s: read_fc(os.path.join(CNT, "%s.intron.txt" % s)) for s in ss}
     expr = {s: read_fc(os.path.join(ROOT, "work", "gene_counts", "%s.genes.txt" % s)) for s in ss}
     with open(os.path.join(DATA, "covariates.tsv")) as fh:
         head = fh.readline().rstrip("\n").split("\t")
         cov = [dict(zip(head, l.rstrip("\n").split("\t"))) for l in fh]
-    out = os.path.join(RES, "gene_alu_counts.tsv")
+    out = os.path.join(RES, "gene_%s_counts.tsv" % TE)
     with open(out, "w") as fh:
-        fh.write("\t".join(head + ["alu_" + s for s in ss] + ["intron_" + s for s in ss]
+        fh.write("\t".join(head + [TE + "_" + s for s in ss] + ["intron_" + s for s in ss]
                            + ["expr_" + s for s in ss]) + "\n")
         for r in cov:
             g = r["gene_id"]
             fh.write("\t".join([r[h] for h in head]
-                               + [str(alu[s].get(g, 0)) for s in ss]
+                               + [str(te[s].get(g, 0)) for s in ss]
                                + [str(intr[s].get(g, 0)) for s in ss]
                                + [str(expr[s].get(g, 0)) for s in ss]) + "\n")
+    keys = sorted(set().union(*(grp[s] for s in ss)))
+    if keys:
+        gout = os.path.join(RES, "gene_%s_group_counts.tsv" % TE)
+        with open(gout, "w") as fh:
+            fh.write("\t".join(["gene_id", "group"] + [TE + "_" + s for s in ss]) + "\n")
+            for k in keys:
+                fh.write("\t".join(k.split("|") + [str(grp[s].get(k, 0)) for s in ss]) + "\n")
+        print("wrote %s" % gout)
     tak = [s for s in ss if "Takara" in s]
-    tot_a = {s: sum(alu[s].values()) for s in tak}
-    tot_i = {s: sum(intr[s].values()) for s in tak}
     print("unique fragments, Takara:")
     for s in tak:
-        print("  %-24s alu %10d  intron %12d" % (s, tot_a[s], tot_i[s]))
+        print("  %-24s %s %10d  intron %12d" % (s, TE, sum(te[s].values()), sum(intr[s].values())))
     print("wrote %s" % out)
-
 
 if __name__ == "__main__":
     if not os.path.exists(os.path.join(DATA, "covariates.tsv")):

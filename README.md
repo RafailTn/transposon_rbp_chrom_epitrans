@@ -109,6 +109,9 @@ python src/16_boundary.py                                  # -> results/boundary
 python src/17_gene_alu.py                                  # -> results/gene_alu_counts.tsv
 Rscript src/18_gene_alu_gsea.R                             # per-gene score, raw + regression-adjusted GSEA
 Rscript src/19_gene_alu_matched.R                          # expression-matched GSEA + matched controls
+FAMILY=L1 python src/17_gene_alu.py                        # same for intronic L1, + per-lineage counts
+Rscript src/18_gene_alu_gsea.R results L1                  # -> results/gene_l1_*
+Rscript src/19_gene_alu_matched.R results L1               # + per-lineage matched GSEA
 ```
 
 References outside the project: GENCODE v47 and GRCh38 in `/mnt/raid1/rafail/aluaca/ref/`.
@@ -123,6 +126,7 @@ References outside the project: GENCODE v47 and GRCh38 in `/mnt/raid1/rafail/alu
 | Alu subfamilies | Sense-only age gradient: AluJ chromatin-bound, AluY cytoplasm-leaning, also away from genes | same |
 | Is cytoplasmic young-Alu RNA its own transcript? | Ends at the first downstream T-run (Pol III-like) but starts upstream; Pol III vs Pol II undecided | `results/boundary_test.tsv` |
 | Host-gene functions | Intronic Alu RNA ~1.6x more retained than its introns overall; after expression matching only OXPHOS (+) and TGF-β (−) hold | `results/gene_alu_matched_sets.tsv` |
+| L1 host-gene functions | Intronic L1 RNA ~3.9x more retained than its introns; after matching only TGF-β (−0.91) and TNF-α/NF-κB (−0.88) hold, both lower; no lineage (L1PA…L1ME) has its own pathway theme | `results/gene_l1_matched_sets.tsv` |
 
 ## Decisions that will bite if forgotten
 
